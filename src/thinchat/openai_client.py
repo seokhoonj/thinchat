@@ -72,6 +72,8 @@ class OpenAICompatibleClient(_BaseClient):
     def __init__(
         self, *, provider: str, base_url: str | None, api_key: str, model: str,
         embed_model: str, has_native_json: bool, max_tokens: int | None = None,
+        temperature: float | None = None, top_p: float | None = None,
+        timeout: float | None = None, max_retries: int | None = None,
     ) -> None:
         try:
             import httpx
@@ -87,18 +89,34 @@ class OpenAICompatibleClient(_BaseClient):
         self._api_key         = api_key
         self._embed_model     = embed_model
         self._has_native_json = has_native_json
-        self._max_tokens      = max_tokens   # None -> omit (OpenAI-compatible; the model decides)
+        self._max_tokens      = max_tokens    # None -> omit (OpenAI-compatible; the model decides)
+        self._temperature     = temperature   # None -> omit (sampling knobs go in the request)
+        self._top_p           = top_p
+        self._timeout         = timeout        # None -> the SDK default (transport, on the client)
+        self._max_retries     = max_retries
         # Catch only the SDK's own error family so a bug in our code surfaces as itself.
         self._sdk_error       = OpenAIError
         # The streaming iteration path does NOT wrap transport failures in OpenAIError, so
         # a mid-stream disconnect raises a raw httpx error; catch that base there too.
         self._stream_errors   = (OpenAIError, httpx.HTTPError)
-        self._client          = OpenAI(base_url=base_url, api_key=api_key)
+        self._client          = OpenAI(base_url=base_url, api_key=api_key, **self._transport_kwargs())
         self._aclient         = None   # built on first async use (see _make_aclient)
+
+    def _transport_kwargs(self) -> dict[str, Any]:
+        # timeout / max_retries are HTTP-client config for the SDK constructor; send each
+        # only when set so the SDK's own default stands otherwise. dict[str, Any]: the bag is
+        # **-splatted into the vendor constructor, whose kwargs are heterogeneously typed, so
+        # a tighter value type won't unpack cleanly under mypy --strict.
+        kwargs: dict[str, Any] = {}
+        if self._timeout is not None:
+            kwargs["timeout"] = self._timeout
+        if self._max_retries is not None:
+            kwargs["max_retries"] = self._max_retries
+        return kwargs
 
     def _make_aclient(self) -> Any:
         from openai import AsyncOpenAI  # the sync import above already proved it installed
-        return AsyncOpenAI(base_url=self._base_url, api_key=self._api_key)
+        return AsyncOpenAI(base_url=self._base_url, api_key=self._api_key, **self._transport_kwargs())
 
     def __repr__(self) -> str:   # one class serves three providers; show which
         return f"OpenAICompatibleClient(provider={self._provider!r}, model={self.model!r})"
@@ -187,6 +205,10 @@ class OpenAICompatibleClient(_BaseClient):
         request: dict[str, object] = {"model": self.model, "messages": messages}
         if self._max_tokens is not None:   # optional here, so send it only when set
             request["max_tokens"] = self._max_tokens
+        if self._temperature is not None:
+            request["temperature"] = self._temperature
+        if self._top_p is not None:
+            request["top_p"] = self._top_p
         if json_mode:
             request["response_format"] = {"type": "json_object"}
         return request
@@ -201,10 +223,12 @@ class OpenAICompatibleClient(_BaseClient):
 
 def _make_openai_client(
     provider: str, *, model: str | None = None, api_key: str | None = None,
-    max_tokens: int | None = None,
+    max_tokens: int | None = None, temperature: float | None = None,
+    top_p: float | None = None, timeout: float | None = None,
+    max_retries: int | None = None,
 ) -> OpenAICompatibleClient:
     """Construct one of the OpenAI-compatible clients (openai / gemini / ollama) by name.
-    ``max_tokens`` caps the reply when set; when None it is omitted and the model decides.
+    Each setting is sent only when set; when None the provider's own default stands.
 
     Raises:
         UnknownProviderError: ``provider`` is not an OpenAI-compatible provider.
@@ -231,6 +255,10 @@ def _make_openai_client(
         embed_model     = spec.embed_model,
         has_native_json = spec.has_native_json,
         max_tokens      = max_tokens,
+        temperature     = temperature,
+        top_p           = top_p,
+        timeout         = timeout,
+        max_retries     = max_retries,
     )
 
 

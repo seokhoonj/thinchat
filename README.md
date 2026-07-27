@@ -84,9 +84,12 @@ openai, gemini, and ollama speak the same OpenAI-compatible API, so one SDK serv
 three; only the base URL, key, and default models differ. Ollama runs locally
 (`OLLAMA_HOST`, default `http://localhost:11434`) and needs no key.
 
-`max_tokens` caps the reply length — `make_client("claude", max_tokens=8192)`. Anthropic
-requires the field, so claude defaults to 4096; the OpenAI-compatible providers omit it unless
-you pass one, letting the model decide.
+Each provider takes the settings it exposes under the same name, sent only when you set them:
+`max_tokens` (reply length), `temperature` / `top_p` (sampling), and `timeout` in seconds /
+`max_retries` (the HTTP client) — e.g. `make_client("claude", temperature=0.2, timeout=30)`.
+An unset value leaves the provider's own default in place, except `max_tokens`, which
+Anthropic requires and so defaults to 4096 for claude (the OpenAI-compatible providers omit
+it, letting the model decide).
 
 Keys are read from the environment. Set them once in your shell profile (`~/.bashrc`,
 `~/.zshrc`) so every session picks them up — thinchat is a library and never imposes a file

@@ -21,12 +21,15 @@ __all__ = ["PROVIDERS", "make_client"]
 
 class _ClientFactory(Protocol):
     """The call shape every provider factory shares once its provider name is bound: the
-    override knobs (model, api_key, max_tokens) in, a client out. Typed (not
-    ``Callable[..., Client]``) so a call with a mistyped kwarg is caught statically."""
+    override knobs (model, api_key, and the generation/transport settings) in, a client out.
+    Typed (not ``Callable[..., Client]``) so a call with a mistyped kwarg is caught
+    statically."""
 
     def __call__(
         self, *, model: str | None = None, api_key: str | None = None,
-        max_tokens: int | None = None,
+        max_tokens: int | None = None, temperature: float | None = None,
+        top_p: float | None = None, timeout: float | None = None,
+        max_retries: int | None = None,
     ) -> Client: ...
 
 
@@ -46,14 +49,22 @@ PROVIDERS: tuple[Provider, ...] = tuple(_FACTORY_BY_PROVIDER)
 
 def make_client(
     provider: str, *, model: str | None = None, api_key: str | None = None,
-    max_tokens: int | None = None,
+    max_tokens: int | None = None, temperature: float | None = None,
+    top_p: float | None = None, timeout: float | None = None,
+    max_retries: int | None = None,
 ) -> Client:
-    """Construct the client for ``provider`` (one of ``PROVIDERS``). ``model`` overrides
-    the provider's default model; ``api_key`` overrides the environment key (for tests, or
-    a caller that manages its own secrets); ``max_tokens`` caps the reply length (a positive
-    integer, validated by the provider). When ``max_tokens`` is None, claude falls back to a
-    default (Anthropic requires the field) and the OpenAI-compatible providers omit it,
-    letting the model decide.
+    """Construct the client for ``provider`` (one of ``PROVIDERS``). ``model`` overrides the
+    provider's default model; ``api_key`` overrides the environment key (for tests, or a
+    caller that manages its own secrets).
+
+    The remaining knobs are the settings every provider exposes under the same name, sent
+    only when set (None leaves the provider's own default in place -- except ``max_tokens``,
+    which claude requires and so falls back to a default there):
+
+    - ``max_tokens`` caps the reply length (a positive integer).
+    - ``temperature`` / ``top_p`` steer sampling; they go in the request.
+    - ``timeout`` (seconds) and ``max_retries`` configure the HTTP client -- how long to
+      wait for a reply and how many times the SDK retries a transient failure.
 
     Raises:
         UnknownProviderError: ``provider`` is not one of ``PROVIDERS``.
@@ -65,4 +76,7 @@ def make_client(
             f"unknown provider {provider!r}; choose one of {', '.join(PROVIDERS)}"
         )
     factory = _FACTORY_BY_PROVIDER[provider]   # `provider` narrowed to a known key by the check above
-    return factory(model=model, api_key=api_key, max_tokens=max_tokens)
+    return factory(
+        model=model, api_key=api_key, max_tokens=max_tokens, temperature=temperature,
+        top_p=top_p, timeout=timeout, max_retries=max_retries,
+    )

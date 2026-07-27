@@ -83,9 +83,11 @@ openai, gemini, ollama는 동일한 OpenAI 호환 API를 쓰므로 하나의 SDK
 URL·키·기본 모델만 다릅니다. Ollama는 로컬에서 실행되며(`OLLAMA_HOST`, 기본
 `http://localhost:11434`) 키가 필요 없습니다.
 
-`max_tokens`는 응답 길이의 상한입니다 — `make_client("claude", max_tokens=8192)`. Anthropic은
-이 필드를 요구하므로 claude는 기본값 4096을 쓰고, OpenAI 호환 provider들은 값을 주지 않으면
-생략해 모델이 정하게 둡니다.
+각 provider는 공통으로 노출하는 설정을 같은 이름으로 받으며, **값을 줄 때만** 전송합니다:
+`max_tokens`(응답 길이), `temperature`/`top_p`(샘플링), `timeout`(초)/`max_retries`(HTTP
+클라이언트) — 예: `make_client("claude", temperature=0.2, timeout=30)`. 값을 안 주면 provider
+자체 기본이 적용되고, 예외는 `max_tokens`뿐입니다 — Anthropic이 필수로 요구해 claude는 기본
+4096을 쓰고, OpenAI 호환 provider들은 생략해 모델이 정하게 둡니다.
 
 키는 환경에서 읽습니다. 셸 프로파일(`~/.bashrc`, `~/.zshrc`)에 한 번 넣어두면 모든 세션이
 인식합니다 — thinchat은 라이브러리라 자체 파일 위치를 강제하지 않습니다:

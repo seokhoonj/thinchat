@@ -38,7 +38,11 @@ class ClaudeClient(_BaseClient):
     _sdk_error:     type[Exception]
     _stream_errors: tuple[type[Exception], ...]
 
-    def __init__(self, *, api_key: str, model: str, max_tokens: int = _CLAUDE_DEFAULT_MAX_TOKENS) -> None:
+    def __init__(
+        self, *, api_key: str, model: str, max_tokens: int = _CLAUDE_DEFAULT_MAX_TOKENS,
+        temperature: float | None = None, top_p: float | None = None,
+        timeout: float | None = None, max_retries: int | None = None,
+    ) -> None:
         try:
             import httpx
             from anthropic import Anthropic, AnthropicError
@@ -50,16 +54,32 @@ class ClaudeClient(_BaseClient):
         self.capabilities   = _CAPABILITIES
         self._api_key       = api_key
         self._max_tokens    = max_tokens
+        self._temperature   = temperature   # None -> omit (sampling knobs go in the request)
+        self._top_p         = top_p
+        self._timeout       = timeout        # None -> the SDK default (transport, on the client)
+        self._max_retries   = max_retries
         # Catch only Anthropic's own error family (so our bugs surface as themselves); the
         # streaming path also raises raw httpx on a mid-stream transport drop.
         self._sdk_error     = AnthropicError
         self._stream_errors = (AnthropicError, httpx.HTTPError)
-        self._client        = Anthropic(api_key=api_key)
+        self._client        = Anthropic(api_key=api_key, **self._transport_kwargs())
         self._aclient       = None   # built on first async use (see _make_aclient)
+
+    def _transport_kwargs(self) -> dict[str, Any]:
+        # timeout / max_retries are HTTP-client config for the SDK constructor; send each
+        # only when set so the SDK's own default stands otherwise. dict[str, Any]: the bag is
+        # **-splatted into the vendor constructor, whose kwargs are heterogeneously typed, so
+        # a tighter value type won't unpack cleanly under mypy --strict.
+        kwargs: dict[str, Any] = {}
+        if self._timeout is not None:
+            kwargs["timeout"] = self._timeout
+        if self._max_retries is not None:
+            kwargs["max_retries"] = self._max_retries
+        return kwargs
 
     def _make_aclient(self) -> Any:
         from anthropic import AsyncAnthropic  # the sync import above already proved it installed
-        return AsyncAnthropic(api_key=self._api_key)
+        return AsyncAnthropic(api_key=self._api_key, **self._transport_kwargs())
 
     def complete(self, prompt: str, *, system: str | None = None) -> str:
         try:
@@ -96,6 +116,10 @@ class ClaudeClient(_BaseClient):
             "max_tokens": self._max_tokens,
             "messages":   [{"role": "user", "content": prompt}],
         }
+        if self._temperature is not None:
+            request["temperature"] = self._temperature
+        if self._top_p is not None:
+            request["top_p"] = self._top_p
         if system is not None:
             request["system"] = system   # Anthropic takes system as its own field, not a message
         return request
@@ -103,9 +127,11 @@ class ClaudeClient(_BaseClient):
 
 def _make_claude_client(
     *, model: str | None = None, api_key: str | None = None, max_tokens: int | None = None,
+    temperature: float | None = None, top_p: float | None = None,
+    timeout: float | None = None, max_retries: int | None = None,
 ) -> ClaudeClient:
     """Construct the Claude client. ``max_tokens`` caps the reply; when None the default
-    (Anthropic requires the field) is used.
+    (Anthropic requires the field) is used. The other settings are sent only when set.
 
     Raises:
         ProviderUnavailableError: the anthropic SDK is not installed, or no API key is set
@@ -117,9 +143,13 @@ def _make_claude_client(
             f"no API key for claude: set {keys.ENV_BY_PROVIDER['claude']} or pass api_key="
         )
     return ClaudeClient(
-        api_key    = key,
-        model      = model or _CLAUDE_DEFAULT_MODEL,
-        max_tokens = max_tokens if max_tokens is not None else _CLAUDE_DEFAULT_MAX_TOKENS,
+        api_key     = key,
+        model       = model or _CLAUDE_DEFAULT_MODEL,
+        max_tokens  = max_tokens if max_tokens is not None else _CLAUDE_DEFAULT_MAX_TOKENS,
+        temperature = temperature,
+        top_p       = top_p,
+        timeout     = timeout,
+        max_retries = max_retries,
     )
 
 

@@ -108,9 +108,10 @@ class _AsyncStream:
 
 
 def install_openai(monkeypatch, *, content="hi", chunks=("a", "b"),
-                   vectors=([0.1, 0.2],), completion=None, embedding=None,
+                   vectors=None, completion=None, embedding=None,
                    error=None, stream_error_after=None, stream_exc=None, stream_sink=None,
-                   close_calls=None, capture=None, client_capture=None, aclient_builds=None):
+                   close_calls=None, capture=None, client_capture=None, aclient_builds=None,
+                   aclient_capture=None):
     """Install a fake ``openai`` module. ``completion`` / ``embedding`` override the whole
     response object (for malformed-shape tests); ``error`` is raised at call time (pass a
     ``FakeOpenAIError`` to exercise error mapping); ``stream_error_after`` raises ``stream_exc``
@@ -119,6 +120,8 @@ def install_openai(monkeypatch, *, content="hi", chunks=("a", "b"),
     records "sync"/"async" as the sync/async client's ``close`` is called; ``client_capture``
     records the ``OpenAI(**kwargs)`` constructor args (base_url, api_key); ``aclient_builds``
     records "async" each time ``AsyncOpenAI`` is constructed (to prove lazy build / caching)."""
+    if vectors is None:
+        vectors = ([0.1, 0.2],)   # a nested list would be a shared mutable default in the signature
     module = types.ModuleType("openai")
     module.OpenAIError = FakeOpenAIError   # type: ignore[attr-defined]
 
@@ -185,6 +188,9 @@ def install_openai(monkeypatch, *, content="hi", chunks=("a", "b"),
     def _async_client(**kw):
         if aclient_builds is not None:
             aclient_builds.append("async")
+        if aclient_capture is not None:
+            aclient_capture.clear()
+            aclient_capture.update(kw)
         return _client(_acreate, _aembed, _async_close)
 
     module.OpenAI      = _sync_client     # type: ignore[attr-defined]
@@ -257,12 +263,14 @@ class _AsyncStreamCtx:
 
 def install_anthropic(monkeypatch, *, content="hi", blocks=None, chunks=("a", "b"),
                       error=None, stream_error_after=None, stream_exc=None, stream_sink=None,
-                      close_calls=None, capture=None, aclient_builds=None):
+                      close_calls=None, capture=None, client_capture=None, aclient_builds=None,
+                      aclient_capture=None):
     """Install a fake ``anthropic`` module. ``blocks`` overrides the response content blocks
     (for empty / no-text-block tests); ``stream_exc`` (default ``FakeAnthropicError``, or a
     raw httpx error) is raised mid-stream; ``stream_sink`` collects the stream objects so a
     test can assert release (``.closed``); ``close_calls`` records "sync"/"async" as each
-    client's ``close`` is called; ``aclient_builds`` records "async" each time
+    client's ``close`` is called; ``client_capture`` records the ``Anthropic(**kwargs)``
+    constructor args (timeout, max_retries); ``aclient_builds`` records "async" each time
     ``AsyncAnthropic`` is constructed (to prove lazy build / caching)."""
     module = types.ModuleType("anthropic")
     module.AnthropicError = FakeAnthropicError   # type: ignore[attr-defined]
@@ -309,9 +317,18 @@ def install_anthropic(monkeypatch, *, content="hi", blocks=None, chunks=("a", "b
     def _async_anthropic(**kw):
         if aclient_builds is not None:
             aclient_builds.append("async")
+        if aclient_capture is not None:
+            aclient_capture.clear()
+            aclient_capture.update(kw)
         return types.SimpleNamespace(messages=_messages(_acreate, _astream), close=_async_close)
 
-    module.Anthropic      = lambda **kw: types.SimpleNamespace(messages=_messages(_create, _stream), close=_sync_close)  # type: ignore[attr-defined]
+    def _sync_anthropic(**kw):
+        if client_capture is not None:
+            client_capture.clear()
+            client_capture.update(kw)
+        return types.SimpleNamespace(messages=_messages(_create, _stream), close=_sync_close)
+
+    module.Anthropic      = _sync_anthropic   # type: ignore[attr-defined]
     module.AsyncAnthropic = _async_anthropic                                                                            # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "anthropic", module)
 

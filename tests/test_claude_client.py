@@ -50,6 +50,64 @@ def test_make_client_forwards_max_tokens_to_claude(monkeypatch):
     assert seen["max_tokens"] == 8192
 
 
+def test_make_client_forwards_temperature_and_top_p_to_claude(monkeypatch):
+    seen: dict[str, object] = {}
+    install_anthropic(monkeypatch, capture=seen)
+    make_client("claude", api_key="k", temperature=0.2, top_p=0.9).complete("q")
+    assert seen["temperature"] == 0.2
+    assert seen["top_p"] == 0.9
+
+
+def test_claude_omits_temperature_and_top_p_by_default(monkeypatch):
+    seen: dict[str, object] = {}
+    install_anthropic(monkeypatch, capture=seen)
+    make_client("claude", api_key="k").complete("q")
+    assert "temperature" not in seen
+    assert "top_p" not in seen
+
+
+def test_make_client_forwards_timeout_and_max_retries_to_the_sdk_client(monkeypatch):
+    seen: dict[str, object] = {}
+    install_anthropic(monkeypatch, client_capture=seen)
+    make_client("claude", api_key="k", timeout=30.0, max_retries=5)
+    assert seen["timeout"] == 30.0
+    assert seen["max_retries"] == 5
+
+
+def test_claude_omits_timeout_and_max_retries_by_default(monkeypatch):
+    seen: dict[str, object] = {}
+    install_anthropic(monkeypatch, client_capture=seen)
+    make_client("claude", api_key="k")
+    assert "timeout" not in seen
+    assert "max_retries" not in seen
+
+
+def test_claude_forwards_zero_valued_knobs(monkeypatch):
+    request_seen: dict[str, object] = {}
+    client_seen: dict[str, object] = {}
+    install_anthropic(monkeypatch, capture=request_seen, client_capture=client_seen)
+    make_client("claude", api_key="k", temperature=0.0, top_p=0.0, max_retries=0).complete("q")
+    assert request_seen["temperature"] == 0.0
+    assert request_seen["top_p"] == 0.0
+    assert client_seen["max_retries"] == 0
+
+
+async def test_claude_async_client_gets_the_transport_config(monkeypatch):
+    seen: dict[str, object] = {}
+    install_anthropic(monkeypatch, content="hi", aclient_capture=seen)
+    await make_client("claude", api_key="k", timeout=30.0, max_retries=5).acomplete("q")
+    assert seen["timeout"] == 30.0
+    assert seen["max_retries"] == 5
+
+
+async def test_claude_async_client_omits_transport_config_by_default(monkeypatch):
+    seen: dict[str, object] = {}
+    install_anthropic(monkeypatch, content="hi", aclient_capture=seen)
+    await make_client("claude", api_key="k").acomplete("q")
+    assert "timeout" not in seen
+    assert "max_retries" not in seen
+
+
 def test_make_client_forwards_zero_max_tokens_to_claude(monkeypatch):
     # An explicit 0 must be forwarded (not coalesced to the default) -- guards the
     # `is not None` fallback against a regression to a falsy check.

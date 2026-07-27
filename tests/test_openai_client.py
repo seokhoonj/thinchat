@@ -53,6 +53,67 @@ def test_make_client_forwards_max_tokens_to_openai(monkeypatch):
     assert seen["max_tokens"] == 1000
 
 
+def test_make_client_forwards_temperature_and_top_p_to_openai(monkeypatch):
+    seen: dict[str, object] = {}
+    install_openai(monkeypatch, capture=seen)
+    make_client("openai", api_key="k", temperature=0.2, top_p=0.9).complete("hi")
+    assert seen["temperature"] == 0.2
+    assert seen["top_p"] == 0.9
+
+
+def test_openai_omits_temperature_and_top_p_by_default(monkeypatch):
+    seen: dict[str, object] = {}
+    install_openai(monkeypatch, capture=seen)
+    make_client("openai", api_key="k").complete("hi")
+    assert "temperature" not in seen
+    assert "top_p" not in seen
+
+
+def test_make_client_forwards_timeout_and_max_retries_to_the_sdk_client(monkeypatch):
+    seen: dict[str, object] = {}
+    install_openai(monkeypatch, client_capture=seen)
+    make_client("openai", api_key="k", timeout=30.0, max_retries=5)
+    assert seen["timeout"] == 30.0
+    assert seen["max_retries"] == 5
+
+
+def test_openai_omits_timeout_and_max_retries_by_default(monkeypatch):
+    seen: dict[str, object] = {}
+    install_openai(monkeypatch, client_capture=seen)
+    make_client("openai", api_key="k")
+    assert "timeout" not in seen        # unset -> the SDK's own default stands
+    assert "max_retries" not in seen
+
+
+def test_openai_forwards_zero_valued_knobs(monkeypatch):
+    # 0.0 temperature / top_p and 0 max_retries are legitimate; the `is not None` gate must
+    # forward them, not drop them as falsy.
+    request_seen: dict[str, object] = {}
+    client_seen: dict[str, object] = {}
+    install_openai(monkeypatch, capture=request_seen, client_capture=client_seen)
+    make_client("openai", api_key="k", temperature=0.0, top_p=0.0, max_retries=0).complete("hi")
+    assert request_seen["temperature"] == 0.0
+    assert request_seen["top_p"] == 0.0
+    assert client_seen["max_retries"] == 0
+
+
+async def test_openai_async_client_gets_the_transport_config(monkeypatch):
+    # The lazily-built async client must receive the same timeout / max_retries as the sync one.
+    seen: dict[str, object] = {}
+    install_openai(monkeypatch, content="hi", aclient_capture=seen)
+    await make_client("openai", api_key="k", timeout=30.0, max_retries=5).acomplete("hi")
+    assert seen["timeout"] == 30.0
+    assert seen["max_retries"] == 5
+
+
+async def test_openai_async_client_omits_transport_config_by_default(monkeypatch):
+    seen: dict[str, object] = {}
+    install_openai(monkeypatch, content="hi", aclient_capture=seen)
+    await make_client("openai", api_key="k").acomplete("hi")
+    assert "timeout" not in seen
+    assert "max_retries" not in seen
+
+
 @pytest.mark.parametrize("provider", ["openai", "gemini", "ollama"])
 def test_make_client_forwards_zero_max_tokens_to_openai_compatible(monkeypatch, provider):
     # An explicit 0 must be forwarded, not dropped by a truthiness check.
