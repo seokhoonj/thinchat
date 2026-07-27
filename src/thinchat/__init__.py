@@ -1,11 +1,11 @@
-"""thinchat: a tiny, unified client for four LLM providers -- openai, claude, gemini, ollama.
+"""thinchat: a tiny, unified client for four LLM providers -- claude, openai, gemini, ollama.
 
 Name a provider, then call it. Each client offers completion (whole, streamed, or
 JSON-structured) and, where the provider has one, embeddings -- with an async twin for each.
 
     from thinchat import make_client
 
-    llm = make_client("gemini")                 # key from GEMINI_API_KEY
+    llm = make_client("claude")                 # key from CLAUDE_API_KEY
     print(llm.complete("Say hi in one word."))
     verdict = llm.parse("Is this an ad? 'Buy now, 50% off'",
                         schema={"type": "object",

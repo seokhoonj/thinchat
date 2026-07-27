@@ -16,7 +16,7 @@ def test_roster_is_the_four_providers():
 
 def test_roster_order_is_stable():
     # PROVIDERS feeds user-facing error text ("choose one of ..."), so its order is a contract.
-    assert PROVIDERS == ("openai", "gemini", "ollama", "claude")
+    assert PROVIDERS == ("claude", "openai", "gemini", "ollama")
 
 
 def test_provider_literal_matches_the_runtime_roster():

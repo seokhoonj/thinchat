@@ -24,7 +24,7 @@ __all__ = ["Capability", "Client", "Provider"]
 # The four providers thinchat speaks to, as a closed type. The public boundary
 # (``make_client``) still takes a runtime ``str`` (a config value is not a Literal) and
 # validates it; the internal surfaces carry ``Provider`` so a typo is a static error.
-Provider = Literal["openai", "claude", "gemini", "ollama"]
+Provider = Literal["claude", "openai", "gemini", "ollama"]
 
 # What a client can do. A caller reads ``supports`` (or catches ``UnsupportedError``)
 # rather than assuming: Claude, for one, has completion and streaming but no embeddings.

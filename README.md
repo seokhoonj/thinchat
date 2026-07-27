@@ -2,7 +2,7 @@
 
 **English** | [한국어](README.ko.md)
 
-A tiny, unified client for four LLM providers — **openai, claude, gemini, ollama**.
+A tiny, unified client for four LLM providers — **claude, openai, gemini, ollama**.
 
 Name a provider, then call it. Every client offers completion — whole, streamed, or
 JSON-structured — and, where the provider has one, embeddings, each with an async twin. No

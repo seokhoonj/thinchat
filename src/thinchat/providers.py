@@ -30,13 +30,13 @@ class _ClientFactory(Protocol):
     ) -> Client: ...
 
 
-# One factory per provider -- the single source of the roster. openai/gemini/ollama share
-# the OpenAI-compatible factory (bound to their name); claude has its own.
+# One factory per provider -- the single source of the roster. claude has its own factory;
+# openai/gemini/ollama share the OpenAI-compatible one (bound to their name).
 _FACTORY_BY_PROVIDER: dict[Provider, _ClientFactory] = {
+    "claude": _make_claude_client,
     "openai": partial(_make_openai_client, "openai"),
     "gemini": partial(_make_openai_client, "gemini"),
     "ollama": partial(_make_openai_client, "ollama"),
-    "claude": _make_claude_client,
 }
 
 # The providers thinchat supports, in insertion order -- derived from the factory map so

@@ -2,7 +2,7 @@
 
 [English](README.md) | **한국어**
 
-네 개의 LLM provider — **openai, claude, gemini, ollama** — 를 위한 작고 통일된 클라이언트.
+네 개의 LLM provider — **claude, openai, gemini, ollama** — 를 위한 작고 통일된 클라이언트.
 
 provider 이름만 대면 호출됩니다. 모든 클라이언트가 completion(전체·스트리밍·JSON 구조화)을
 제공하고, provider가 지원하면 embeddings도 제공하며, 각각 async 짝이 있습니다. gateway도,
