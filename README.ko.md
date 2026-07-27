@@ -121,7 +121,7 @@ thinchat이 의도적으로 던지는 모든 에러는 `ThinchatError`에서 파
 - `UnsupportedError` — provider가 그 기능을 지원하지 않음(예: Claude의 embeddings).
 - `LLMError` — API 호출이 실패했거나, 응답이 비었거나 형식이 잘못됨.
 
-## 생명주기(Lifecycle)
+## 라이프사이클
 
 클라이언트는 HTTP 연결 풀을 보유합니다. 일회성 스크립트라면 신경 쓰지 않아도 되지만, 요청마다
 클라이언트를 만드는 서버라면 연결이 새지 않도록 닫아야 합니다 — context manager로 쓰거나
