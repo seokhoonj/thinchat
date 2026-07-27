@@ -1,5 +1,9 @@
 # thinchat
 
+[![PyPI](https://img.shields.io/pypi/v/thinchat.svg)](https://pypi.org/project/thinchat/)
+[![Python](https://img.shields.io/pypi/pyversions/thinchat.svg)](https://pypi.org/project/thinchat/)
+[![License: MIT](https://img.shields.io/pypi/l/thinchat.svg)](https://github.com/seokhoonj/thinchat/blob/master/LICENSE)
+
 [English](README.md) | **한국어**
 
 네 개의 LLM provider — **claude, openai, gemini, ollama** — 를 위한 작고 통일된 클라이언트.
