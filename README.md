@@ -2,7 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/thinchat.svg)](https://pypi.org/project/thinchat/)
 [![Python](https://img.shields.io/pypi/pyversions/thinchat.svg)](https://pypi.org/project/thinchat/)
-[![License: MIT](https://img.shields.io/pypi/l/thinchat.svg)](https://github.com/seokhoonj/thinchat/blob/master/LICENSE)
+[![License: MIT](https://img.shields.io/pypi/l/thinchat.svg)](https://github.com/seokhoonj/thinchat/blob/main/LICENSE)
 
 **English** | [한국어](README.ko.md)
 
