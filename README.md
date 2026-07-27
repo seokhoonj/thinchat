@@ -1,0 +1,141 @@
+# thinchat
+
+A tiny, unified client for four LLM providers — **openai, claude, gemini, ollama**.
+
+Name a provider, then call it. Every client offers completion — whole, streamed, or
+JSON-structured — and, where the provider has one, embeddings, each with an async twin. No
+gateway, no router, no cost tracking: just the calls, over the providers' own SDKs.
+
+## How it works
+
+```mermaid
+flowchart LR
+  M["make_client(provider)"] --> C["Client<br/>openai-compatible · or claude"]
+  C --> V["complete · stream · parse · embed<br/>(+ a-prefixed async twins)"]
+  V --> S{{"vendor SDK"}}
+  S -->|ok| O(["str · dict · list float · stream"])
+  S -->|"SDK / transport error"| E(["LLMError"])
+```
+
+`make_client` looks the provider up in one factory map: openai/gemini/ollama share a single
+class over the openai SDK (they differ only in data); claude has its own over anthropic.
+A call builds the request, hits the SDK, and either extracts the reply or maps the failure
+to one `LLMError`.
+
+## Install
+
+```sh
+pip install 'thinchat[openai]'    # openai, gemini, and ollama (they share one SDK)
+pip install 'thinchat[claude]'    # claude
+pip install 'thinchat[all]'       # all four
+```
+
+The base package carries no provider SDK. Each client imports its SDK lazily the first
+time you construct it, so you install only the provider you use.
+
+## Use
+
+```python
+from thinchat import make_client
+
+llm = make_client("gemini")                     # key from GEMINI_API_KEY
+print(llm.complete("Say hi in one word."))
+print(llm.complete("Name a color.", system="Answer in one word."))   # system= steers any verb
+
+# Structured output: reply parsed into a JSON object. The schema steers generation
+# but is not validated locally, so check the returned dict's fields yourself.
+verdict = llm.parse(
+    "Is this an ad? 'Buy now, 50% off — order today'",
+    schema={"type": "object",
+            "properties": {"is_ad": {"type": "boolean"}, "reason": {"type": "string"}},
+            "required": ["is_ad"]},
+)
+print(verdict["is_ad"])
+
+# Streaming.
+for chunk in make_client("openai").stream("Count to five."):
+    print(chunk, end="")
+
+# Embeddings (openai / gemini / ollama; Claude has none).
+vectors = make_client("openai").embed(["hello", "world"])
+```
+
+Every verb has an async twin — `acomplete`, `astream`, `aparse`, `aembed`:
+
+```python
+llm = make_client("claude")
+text = await llm.acomplete("Summarize in one line: ...")
+```
+
+## Providers
+
+| provider | SDK / extra          | key env           | embeddings |
+|----------|----------------------|-------------------|------------|
+| `openai` | `thinchat[openai]`    | `OPENAI_API_KEY`  | yes        |
+| `gemini` | `thinchat[openai]`    | `GEMINI_API_KEY`  | yes        |
+| `ollama` | `thinchat[openai]`    | none (local)      | yes        |
+| `claude` | `thinchat[claude]`    | `CLAUDE_API_KEY`  | no         |
+
+openai, gemini, and ollama speak the same OpenAI-compatible API, so one SDK serves all
+three; only the base URL, key, and default models differ. Ollama runs locally
+(`OLLAMA_HOST`, default `http://localhost:11434`) and needs no key.
+
+`max_tokens` caps the reply length — `make_client("claude", max_tokens=8192)`. Anthropic
+requires the field, so claude defaults to 4096; the OpenAI-compatible providers omit it unless
+you pass one, letting the model decide.
+
+Keys are read from the environment. Set them once in your shell profile (`~/.bashrc`,
+`~/.zshrc`) so every session picks them up — thinchat is a library and never imposes a file
+location of its own:
+
+```sh
+export OPENAI_API_KEY="sk-..."
+export CLAUDE_API_KEY="sk-ant-..."
+export GEMINI_API_KEY="..."          # ollama runs locally and needs no key
+```
+
+Or pass a key explicitly, which overrides the environment:
+
+```python
+llm = make_client("openai", api_key="sk-...", model="gpt-4o")
+```
+
+## Capabilities
+
+A client whose provider lacks a capability raises `UnsupportedError`. The capabilities are
+`completion`, `streaming`, `structured_output`, and `embeddings`; check first with `supports`:
+
+```python
+make_client("claude").supports("embeddings")   # False
+```
+
+## Errors
+
+Everything thinchat raises on purpose derives from `ThinchatError`, so one `except` handles
+the package's failures:
+
+- `UnknownProviderError` — the name isn't one of the four providers.
+- `ProviderUnavailableError` — the provider's SDK isn't installed, or no API key is set.
+- `UnsupportedError` — the provider lacks the capability (e.g. embeddings on Claude).
+- `LLMError` — the API call failed, or the reply was empty or malformed.
+
+## Lifecycle
+
+A client holds an HTTP connection pool. For a one-off script you can ignore it; for a
+server that builds a client per request, close it so connections do not leak — use it as a
+context manager, or call `close()` / `aclose()`:
+
+```python
+with make_client("openai") as llm:
+    llm.complete("...")                 # sync: closes the pool on exit
+
+async with make_client("openai") as llm:
+    await llm.acomplete("...")          # async: closes the async pool too
+```
+
+`close()` frees the sync pool; if you drove async verbs, release with `aclose()` or
+`async with` so the async pool is closed as well.
+
+## License
+
+MIT
