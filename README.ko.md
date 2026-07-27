@@ -1,6 +1,6 @@
 # thinchat
 
-[English](README.md) · **한국어**
+[English](README.md) | **한국어**
 
 네 개의 LLM provider — **openai, claude, gemini, ollama** — 를 위한 작고 통일된 클라이언트.
 

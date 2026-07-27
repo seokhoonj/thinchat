@@ -1,6 +1,6 @@
 # thinchat
 
-**English** · [한국어](README.ko.md)
+**English** | [한국어](README.ko.md)
 
 A tiny, unified client for four LLM providers — **openai, claude, gemini, ollama**.
 
