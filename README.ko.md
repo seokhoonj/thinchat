@@ -37,7 +37,7 @@ pip install thinchat
 ```python
 from thinchat import make_client
 
-llm = make_client("gemini")                     # 키는 GEMINI_API_KEY에서
+llm = make_client("claude")                     # 키는 CLAUDE_API_KEY에서
 print(llm.complete("Say hi in one word."))
 print(llm.complete("Name a color.", system="Answer in one word."))   # system=은 모든 verb를 유도
 
@@ -52,7 +52,7 @@ verdict = llm.parse(
 print(verdict["is_ad"])
 
 # 스트리밍.
-for chunk in make_client("openai").stream("Count to five."):
+for chunk in make_client("claude").stream("Count to five."):
     print(chunk, end="")
 
 # 임베딩 (openai / gemini / ollama; Claude는 없음).
@@ -70,10 +70,10 @@ text = await llm.acomplete("Summarize in one line: ...")
 
 | provider | 키 환경변수        | embeddings |
 |----------|-------------------|------------|
+| `claude` | `CLAUDE_API_KEY`  | 아니오     |
 | `openai` | `OPENAI_API_KEY`  | 예         |
 | `gemini` | `GEMINI_API_KEY`  | 예         |
 | `ollama` | 없음 (로컬)        | 예         |
-| `claude` | `CLAUDE_API_KEY`  | 아니오     |
 
 openai, gemini, ollama는 동일한 OpenAI 호환 API를 쓰므로 하나의 SDK가 셋을 다 처리하고, base
 URL·키·기본 모델만 다릅니다. Ollama는 로컬에서 실행되며(`OLLAMA_HOST`, 기본
@@ -87,15 +87,15 @@ URL·키·기본 모델만 다릅니다. Ollama는 로컬에서 실행되며(`OL
 인식합니다 — thinchat은 라이브러리라 자체 파일 위치를 강제하지 않습니다:
 
 ```sh
-export OPENAI_API_KEY="sk-..."
 export CLAUDE_API_KEY="sk-ant-..."
+export OPENAI_API_KEY="sk-..."
 export GEMINI_API_KEY="..."          # ollama는 로컬이라 키 불필요
 ```
 
 또는 환경변수를 덮어쓰며 키를 직접 넘길 수도 있습니다:
 
 ```python
-llm = make_client("openai", api_key="sk-...", model="gpt-4o")
+llm = make_client("claude", api_key="sk-ant-...", model="claude-haiku-4-5-20251001")
 ```
 
 ## 지원 기능(Capabilities)
@@ -124,10 +124,10 @@ thinchat이 의도적으로 던지는 모든 에러는 `ThinchatError`에서 파
 `close()` / `aclose()`를 호출하세요:
 
 ```python
-with make_client("openai") as llm:
+with make_client("claude") as llm:
     llm.complete("...")                 # 동기: 종료 시 풀을 닫음
 
-async with make_client("openai") as llm:
+async with make_client("claude") as llm:
     await llm.acomplete("...")          # 비동기: async 풀도 닫음
 ```
 

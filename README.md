@@ -38,7 +38,7 @@ box; each is imported lazily the first time you construct its client.
 ```python
 from thinchat import make_client
 
-llm = make_client("gemini")                     # key from GEMINI_API_KEY
+llm = make_client("claude")                     # key from CLAUDE_API_KEY
 print(llm.complete("Say hi in one word."))
 print(llm.complete("Name a color.", system="Answer in one word."))   # system= steers any verb
 
@@ -53,7 +53,7 @@ verdict = llm.parse(
 print(verdict["is_ad"])
 
 # Streaming.
-for chunk in make_client("openai").stream("Count to five."):
+for chunk in make_client("claude").stream("Count to five."):
     print(chunk, end="")
 
 # Embeddings (openai / gemini / ollama; Claude has none).
@@ -71,10 +71,10 @@ text = await llm.acomplete("Summarize in one line: ...")
 
 | provider | key env           | embeddings |
 |----------|-------------------|------------|
+| `claude` | `CLAUDE_API_KEY`  | no         |
 | `openai` | `OPENAI_API_KEY`  | yes        |
 | `gemini` | `GEMINI_API_KEY`  | yes        |
 | `ollama` | none (local)      | yes        |
-| `claude` | `CLAUDE_API_KEY`  | no         |
 
 openai, gemini, and ollama speak the same OpenAI-compatible API, so one SDK serves all
 three; only the base URL, key, and default models differ. Ollama runs locally
@@ -89,15 +89,15 @@ Keys are read from the environment. Set them once in your shell profile (`~/.bas
 location of its own:
 
 ```sh
-export OPENAI_API_KEY="sk-..."
 export CLAUDE_API_KEY="sk-ant-..."
+export OPENAI_API_KEY="sk-..."
 export GEMINI_API_KEY="..."          # ollama runs locally and needs no key
 ```
 
 Or pass a key explicitly, which overrides the environment:
 
 ```python
-llm = make_client("openai", api_key="sk-...", model="gpt-4o")
+llm = make_client("claude", api_key="sk-ant-...", model="claude-haiku-4-5-20251001")
 ```
 
 ## Capabilities
@@ -126,10 +126,10 @@ server that builds a client per request, close it so connections do not leak —
 context manager, or call `close()` / `aclose()`:
 
 ```python
-with make_client("openai") as llm:
+with make_client("claude") as llm:
     llm.complete("...")                 # sync: closes the pool on exit
 
-async with make_client("openai") as llm:
+async with make_client("claude") as llm:
     await llm.acomplete("...")          # async: closes the async pool too
 ```
 
