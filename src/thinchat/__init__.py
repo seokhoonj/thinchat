@@ -12,9 +12,8 @@ JSON-structured) and, where the provider has one, embeddings -- with an async tw
                                 "properties": {"is_ad": {"type": "boolean"}},
                                 "required": ["is_ad"]})
 
-The base install carries no provider SDK: install the client you use -- ``thinchat[openai]``
-(covers openai, gemini, and ollama) or ``thinchat[claude]`` -- and it is imported lazily
-when you first construct that client.
+Installing thinchat brings both provider SDKs (openai and anthropic), so every provider
+works out of the box; each SDK is imported lazily when you first construct its client.
 """
 
 from importlib.metadata import PackageNotFoundError, version

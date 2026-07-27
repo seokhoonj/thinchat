@@ -78,8 +78,7 @@ class OpenAICompatibleClient(_BaseClient):
             from openai import OpenAI, OpenAIError
         except ImportError as err:
             raise ProviderUnavailableError(
-                "the openai/gemini/ollama clients need the openai package; install it "
-                "with: pip install 'thinchat[openai]'"
+                "the openai package is required but could not be imported; reinstall thinchat"
             ) from err
         self.model            = model
         self.capabilities     = _CAPABILITIES

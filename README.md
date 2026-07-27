@@ -1,5 +1,7 @@
 # thinchat
 
+**English** · [한국어](README.ko.md)
+
 A tiny, unified client for four LLM providers — **openai, claude, gemini, ollama**.
 
 Name a provider, then call it. Every client offers completion — whole, streamed, or
@@ -25,13 +27,11 @@ to one `LLMError`.
 ## Install
 
 ```sh
-pip install 'thinchat[openai]'    # openai, gemini, and ollama (they share one SDK)
-pip install 'thinchat[claude]'    # claude
-pip install 'thinchat[all]'       # all four
+pip install thinchat
 ```
 
-The base package carries no provider SDK. Each client imports its SDK lazily the first
-time you construct it, so you install only the provider you use.
+Both provider SDKs (openai and anthropic) come with it, so every provider works out of the
+box; each is imported lazily the first time you construct its client.
 
 ## Use
 
@@ -69,12 +69,12 @@ text = await llm.acomplete("Summarize in one line: ...")
 
 ## Providers
 
-| provider | SDK / extra          | key env           | embeddings |
-|----------|----------------------|-------------------|------------|
-| `openai` | `thinchat[openai]`    | `OPENAI_API_KEY`  | yes        |
-| `gemini` | `thinchat[openai]`    | `GEMINI_API_KEY`  | yes        |
-| `ollama` | `thinchat[openai]`    | none (local)      | yes        |
-| `claude` | `thinchat[claude]`    | `CLAUDE_API_KEY`  | no         |
+| provider | key env           | embeddings |
+|----------|-------------------|------------|
+| `openai` | `OPENAI_API_KEY`  | yes        |
+| `gemini` | `GEMINI_API_KEY`  | yes        |
+| `ollama` | none (local)      | yes        |
+| `claude` | `CLAUDE_API_KEY`  | no         |
 
 openai, gemini, and ollama speak the same OpenAI-compatible API, so one SDK serves all
 three; only the base URL, key, and default models differ. Ollama runs locally

@@ -44,8 +44,7 @@ class ClaudeClient(_BaseClient):
             from anthropic import Anthropic, AnthropicError
         except ImportError as err:
             raise ProviderUnavailableError(
-                "the claude client needs the anthropic package; install it with: "
-                "pip install 'thinchat[claude]'"
+                "the anthropic package is required but could not be imported; reinstall thinchat"
             ) from err
         self.model          = model
         self.capabilities   = _CAPABILITIES

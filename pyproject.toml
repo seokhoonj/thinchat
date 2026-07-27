@@ -21,9 +21,16 @@ classifiers     = [
 ]
 # 3.11+ for the typing niceties this package uses (e.g. Self).
 requires-python = ">=3.11"
-# The base install carries no provider SDK: each client imports its SDK lazily and is
-# named as an extra, so a user installs only the provider they call.
-dependencies    = []
+# openai, gemini, and ollama speak the OpenAI-compatible API, so the openai SDK powers
+# three providers; claude uses the anthropic SDK. Both ship with the base install, so a
+# plain `pip install thinchat` is ready for every provider -- each SDK is still imported
+# lazily, only when its client is constructed. httpx is named directly (its transport
+# errors are caught on the streaming path), so it is a direct dependency, not a transitive.
+dependencies    = [
+    "openai>=1.30",
+    "anthropic>=0.40",
+    "httpx>=0.23",
+]
 
 [project.urls]
 Homepage   = "https://github.com/seokhoonj/thinchat"
@@ -31,19 +38,8 @@ Repository = "https://github.com/seokhoonj/thinchat"
 Issues     = "https://github.com/seokhoonj/thinchat/issues"
 
 [project.optional-dependencies]
-# openai, gemini, and ollama all speak the OpenAI-compatible API, so one SDK (`openai`)
-# powers three providers; claude uses its own SDK. Each is imported lazily inside the
-# client that needs it, so the extra pulls in only what its clients call. httpx is named
-# directly in the stream error path (its transport errors are caught), so it is declared
-# here rather than relied on transitively through the vendor SDK.
-openai = ["openai>=1.30", "httpx>=0.23"]
-claude = ["anthropic>=0.40", "httpx>=0.23"]
-# Everything, for a caller that wants all four providers available.
-all = ["openai>=1.30", "anthropic>=0.40", "httpx>=0.23"]
+# Development only; the provider SDKs are base dependencies, installed with the package.
 dev = [
-    "openai>=1.30",
-    "anthropic>=0.40",
-    "httpx>=0.23",
     "mypy>=1.11",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
