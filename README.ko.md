@@ -1,5 +1,6 @@
 # thinchat
 
+[![check](https://github.com/seokhoonj/thinchat/actions/workflows/check.yml/badge.svg)](https://github.com/seokhoonj/thinchat/actions/workflows/check.yml)
 [![PyPI](https://img.shields.io/pypi/v/thinchat.svg)](https://pypi.org/project/thinchat/)
 [![Python](https://img.shields.io/pypi/pyversions/thinchat.svg)](https://pypi.org/project/thinchat/)
 [![License: MIT](https://img.shields.io/pypi/l/thinchat.svg)](https://github.com/seokhoonj/thinchat/blob/main/LICENSE)

@@ -1,0 +1,99 @@
+name: check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch or PR makes the older matrix's result obsolete,
+# so cancel it rather than let both run to completion.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# The check only reads the code to lint, type, and test it -- it never writes to the
+# repo -- so it runs with the least privilege that still allows a checkout.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every version the classifiers advertise. requires-python says >=3.11, so each
+        # of these is a compatibility claim made to installers; a pure-Python package is
+        # cheap enough to hold every one of them to it rather than only the two ends.
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+
+      - name: Install
+        # A venv per matrix version, not `uv pip --system`: the runner's system Python is
+        # externally managed and is one fixed version whatever the matrix says.
+        run: |
+          uv venv --python ${{ matrix.python-version }}
+          uv pip install -e ".[dev]"
+          .venv/bin/python -c "import sys; print('testing on', sys.version)"
+
+      - name: Test
+        run: .venv/bin/pytest -q
+
+      - name: Lint
+        run: .venv/bin/ruff check src tests
+
+      - name: Types
+        run: .venv/bin/mypy
+
+      - name: Confirm a base install imports, stays lazy, and builds every provider
+        # The README promises a plain `pip install thinchat` is ready for every provider,
+        # and the pyproject that each SDK is imported lazily. Both are testable, and the dev
+        # install above exercises neither: a runtime dependency stranded in the dev extras,
+        # or a provider SDK pulled in at import time, would ship green. So install the
+        # package alone -- no dev extras -- then check both halves of the promise: importing
+        # it loads no provider SDK, and yet every advertised provider still constructs, which
+        # forces each SDK to import from the base environment and proves it is really there.
+        run: |
+          uv venv /tmp/base --python ${{ matrix.python-version }}
+          uv pip install --python /tmp/base/bin/python .
+          uv pip check --python /tmp/base/bin/python
+          /tmp/base/bin/python - <<'PY'
+          import sys
+          from thinchat import PROVIDERS, make_client
+          eager = [m for m in ("openai", "anthropic") if m in sys.modules]
+          assert not eager, f"provider SDK imported at import time, not lazily: {eager}"
+          for provider in PROVIDERS:
+              make_client(provider, api_key="dummy")  # constructs offline; no request is sent
+          PY
+
+      - name: Confirm a user's type checker can see the hints
+        # Every hint in this package is invisible to a user unless py.typed ships alongside
+        # it (PEP 561), and the source cannot answer whether it did: src/thinchat/py.typed
+        # can sit in git while the built wheel omits it. So build and install the package
+        # into a clean environment, confirm the marker landed in the installed tree, then
+        # check it the way a user does -- make_client's max_tokens is typed int | None, so a
+        # str there must be rejected; were the marker lost the module would read as untyped
+        # and that error would vanish. Assert mypy actually failed, so a crash or a clean
+        # pass is itself a failure; and key the greps on mypy's stable error code plus our
+        # own argument name, not on how mypy renders the type, so a future mypy release
+        # cannot turn a correct package red.
+        run: |
+          uv venv /tmp/typed --python ${{ matrix.python-version }}
+          uv pip install --python /tmp/typed/bin/python . mypy
+          /tmp/typed/bin/python -c "from importlib.resources import files; assert files('thinchat').joinpath('py.typed').is_file()"
+          cat > /tmp/user_code.py <<'PY'
+          from thinchat import make_client
+
+          make_client("claude", max_tokens="lots")  # max_tokens is int | None, not str
+          PY
+          if /tmp/typed/bin/mypy /tmp/user_code.py > /tmp/mypy_out 2>&1; then
+            echo "expected mypy to reject max_tokens=\"lots\" but it passed"; exit 1
+          fi
+          cat /tmp/mypy_out
+          grep -qF '[arg-type]' /tmp/mypy_out
+          grep -qF 'max_tokens' /tmp/mypy_out
