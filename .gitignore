@@ -7,11 +7,21 @@ build/
 dist/
 .venv/
 venv/
+.env
+
+# uv
+uv.lock
 
 # Tooling caches
-.mypy_cache/
-.ruff_cache/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local scratch (never tracked)
+dev/
+refs/
 
 # AI coding agents
 CLAUDE.md
@@ -21,5 +31,3 @@ AGENT.md
 .codex/
 GEMINI.md
 .gemini/
-
-dev/
