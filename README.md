@@ -7,38 +7,23 @@
 
 **English** | [한국어](README.ko.md)
 
-A tiny, unified client for four LLM providers — **claude, openai, gemini, ollama**.
+A thin, unified client for four LLM providers — **claude, openai, gemini, ollama**.
 
 Name a provider, then call it. Every client offers completion — whole, streamed, or
 JSON-structured — and, where the provider has one, embeddings, each with an async twin. No
 gateway, no router, no cost tracking: just the calls, over the providers' own SDKs.
 
-## How it works
-
-```mermaid
-flowchart LR
-  M["make_client(provider)"] --> C["Client<br/>openai-compatible · or claude"]
-  C --> V["complete · stream · parse · embed<br/>(+ a-prefixed async twins)"]
-  V --> S{{"vendor SDK"}}
-  S -->|ok| O(["str · dict · list float · stream"])
-  S -->|"SDK / transport error"| E(["LLMError"])
-```
-
-`make_client` looks the provider up in one factory map: openai/gemini/ollama share a single
-class over the openai SDK (they differ only in data); claude has its own over anthropic.
-A call builds the request, hits the SDK, and either extracts the reply or maps the failure
-to one `LLMError`.
-
-## Install
+## 1. Install
 
 ```sh
 pip install thinchat
 ```
 
-Both provider SDKs (openai and anthropic) come with it, so every provider works out of the
-box; each is imported lazily the first time you construct its client.
+Requires Python 3.11+. Both provider SDKs (openai and anthropic) come with it, so every
+provider works out of the box; each is imported lazily the first time you construct its
+client.
 
-## Use
+## 2. Use
 
 ```python
 from thinchat import make_client
@@ -72,7 +57,7 @@ llm = make_client("claude")
 text = await llm.acomplete("Summarize in one line: ...")
 ```
 
-## Providers
+## 3. Providers
 
 | provider | key env           | embeddings |
 |----------|-------------------|------------|
@@ -108,7 +93,7 @@ Or pass a key explicitly, which overrides the environment:
 llm = make_client("claude", api_key="sk-ant-...", model="claude-haiku-4-5-20251001")
 ```
 
-## Capabilities
+## 4. Capabilities
 
 A client whose provider lacks a capability raises `UnsupportedError`. The capabilities are
 `completion`, `streaming`, `structured_output`, and `embeddings`; check first with `supports`:
@@ -117,7 +102,7 @@ A client whose provider lacks a capability raises `UnsupportedError`. The capabi
 make_client("claude").supports("embeddings")   # False
 ```
 
-## Errors
+## 5. Errors
 
 Everything thinchat raises on purpose derives from `ThinchatError`, so one `except` handles
 the package's failures:
@@ -127,7 +112,7 @@ the package's failures:
 - `UnsupportedError` — the provider lacks the capability (e.g. embeddings on Claude).
 - `LLMError` — the API call failed, or the reply was empty or malformed.
 
-## Lifecycle
+## 6. Lifecycle
 
 A client holds an HTTP connection pool. For a one-off script you can ignore it; for a
 server that builds a client per request, close it so connections do not leak — use it as a
@@ -144,6 +129,22 @@ async with make_client("claude") as llm:
 `close()` frees the sync pool; if you drove async verbs, release with `aclose()` or
 `async with` so the async pool is closed as well.
 
-## License
+## 7. How it works
+
+```mermaid
+flowchart LR
+  M["make_client(provider)"] --> C["Client<br/>openai-compatible · or claude"]
+  C --> V["complete · stream · parse · embed<br/>(+ a-prefixed async twins)"]
+  V --> S{{"vendor SDK"}}
+  S -->|ok| O(["str · dict · list float · stream"])
+  S -->|"SDK / transport error"| E(["LLMError"])
+```
+
+`make_client` looks the provider up in one factory map: openai/gemini/ollama share a single
+class over the openai SDK (they differ only in data); claude has its own over anthropic.
+A call builds the request, hits the SDK, and either extracts the reply or maps the failure
+to one `LLMError`.
+
+## 8. License
 
 MIT

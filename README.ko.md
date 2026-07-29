@@ -7,37 +7,22 @@
 
 [English](README.md) | **한국어**
 
-네 개의 LLM provider — **claude, openai, gemini, ollama** — 를 위한 작고 통일된 클라이언트.
+네 개의 LLM provider — **claude, openai, gemini, ollama** — 를 위한 얇고 통일된 클라이언트.
 
 provider 이름만 대면 호출됩니다. 모든 클라이언트가 completion(전체·스트리밍·JSON 구조화)을
 제공하고, provider가 지원하면 embeddings도 제공하며, 각각 async 짝이 있습니다. gateway도,
 router도, 비용 추적도 없이 — provider 자신의 SDK 위에서 호출만 합니다.
 
-## 동작 방식
-
-```mermaid
-flowchart LR
-  M["make_client(provider)"] --> C["Client<br/>openai-compatible · or claude"]
-  C --> V["complete · stream · parse · embed<br/>(+ a-prefixed async twins)"]
-  V --> S{{"vendor SDK"}}
-  S -->|ok| O(["str · dict · list float · stream"])
-  S -->|"SDK / transport error"| E(["LLMError"])
-```
-
-`make_client`는 provider를 하나의 factory map에서 찾습니다: openai/gemini/ollama는 openai
-SDK 위의 단일 클래스를 공유하고(데이터만 다름), claude는 anthropic 위에 자기 것을 둡니다.
-호출은 요청을 조립해 SDK를 치고, 응답을 추출하거나 실패를 하나의 `LLMError`로 매핑합니다.
-
-## 설치
+## 1. 설치
 
 ```sh
 pip install thinchat
 ```
 
-두 provider SDK(openai와 anthropic)가 함께 설치되어 모든 provider가 바로 동작합니다. 각 SDK는
-해당 클라이언트를 처음 생성할 때 lazy하게 import됩니다.
+Python 3.11+ 필요. 두 provider SDK(openai와 anthropic)가 함께 설치되어 모든 provider가 바로
+동작합니다. 각 SDK는 해당 클라이언트를 처음 생성할 때 lazy하게 import됩니다.
 
-## 사용
+## 2. 사용
 
 ```python
 from thinchat import make_client
@@ -71,7 +56,7 @@ llm = make_client("claude")
 text = await llm.acomplete("Summarize in one line: ...")
 ```
 
-## Provider
+## 3. Provider
 
 | provider | 키 환경변수        | embeddings |
 |----------|-------------------|------------|
@@ -105,7 +90,7 @@ export GEMINI_API_KEY="..."          # ollama는 로컬이라 키 불필요
 llm = make_client("claude", api_key="sk-ant-...", model="claude-haiku-4-5-20251001")
 ```
 
-## 지원 기능(Capabilities)
+## 4. 지원 기능(Capabilities)
 
 provider가 지원하지 않는 기능을 호출하면 `UnsupportedError`가 발생합니다. 기능은 `completion`,
 `streaming`, `structured_output`, `embeddings`이며, `supports`로 먼저 확인하세요:
@@ -114,7 +99,7 @@ provider가 지원하지 않는 기능을 호출하면 `UnsupportedError`가 발
 make_client("claude").supports("embeddings")   # False
 ```
 
-## 에러
+## 5. 에러
 
 thinchat이 의도적으로 던지는 모든 에러는 `ThinchatError`에서 파생되므로, 하나의 `except`로 이
 패키지의 실패를 처리할 수 있습니다:
@@ -124,7 +109,7 @@ thinchat이 의도적으로 던지는 모든 에러는 `ThinchatError`에서 파
 - `UnsupportedError` — provider가 그 기능을 지원하지 않음(예: Claude의 embeddings).
 - `LLMError` — API 호출이 실패했거나, 응답이 비었거나 형식이 잘못됨.
 
-## 라이프사이클
+## 6. 라이프사이클
 
 클라이언트는 HTTP 연결 풀을 보유합니다. 일회성 스크립트라면 신경 쓰지 않아도 되지만, 요청마다
 클라이언트를 만드는 서버라면 연결이 새지 않도록 닫아야 합니다 — context manager로 쓰거나
@@ -141,6 +126,21 @@ async with make_client("claude") as llm:
 `close()`는 동기 풀을 해제합니다. async verb를 사용했다면 `aclose()`나 `async with`로 async
 풀까지 닫으세요.
 
-## 라이선스
+## 7. 동작 방식
+
+```mermaid
+flowchart LR
+  M["make_client(provider)"] --> C["Client<br/>openai-compatible · or claude"]
+  C --> V["complete · stream · parse · embed<br/>(+ a-prefixed async twins)"]
+  V --> S{{"vendor SDK"}}
+  S -->|ok| O(["str · dict · list float · stream"])
+  S -->|"SDK / transport error"| E(["LLMError"])
+```
+
+`make_client`는 provider를 하나의 factory map에서 찾습니다: openai/gemini/ollama는 openai
+SDK 위의 단일 클래스를 공유하고(데이터만 다름), claude는 anthropic 위에 자기 것을 둡니다.
+호출은 요청을 조립해 SDK를 치고, 응답을 추출하거나 실패를 하나의 `LLMError`로 매핑합니다.
+
+## 8. 라이선스
 
 MIT

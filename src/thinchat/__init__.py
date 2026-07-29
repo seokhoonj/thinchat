@@ -1,4 +1,4 @@
-"""thinchat: a tiny, unified client for four LLM providers -- claude, openai, gemini, ollama.
+"""thinchat: a thin, unified client for four LLM providers -- claude, openai, gemini, ollama.
 
 Name a provider, then call it. Each client offers completion (whole, streamed, or
 JSON-structured) and, where the provider has one, embeddings -- with an async twin for each.
