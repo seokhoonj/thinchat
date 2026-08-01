@@ -46,7 +46,7 @@ print(review["sentiment"])
 for chunk in make_client("claude").stream("가을에 대한 짧은 시 하나 써줘."):
     print(chunk, end="")
 
-# 임베딩 (openai / gemini / ollama; Claude는 없음).
+# 임베딩 (openai / gemini / ollama 가능; claude 불가).
 vectors = make_client("openai").embed(["강아지", "고양이"])
 ```
 

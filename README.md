@@ -46,7 +46,7 @@ print(review["sentiment"])
 for chunk in make_client("claude").stream("Count to five."):
     print(chunk, end="")
 
-# Embeddings (openai / gemini / ollama; Claude has none).
+# Embeddings (openai / gemini / ollama supported; not claude).
 vectors = make_client("openai").embed(["hello", "world"])
 ```
 
