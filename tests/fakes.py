@@ -22,6 +22,24 @@ class FakeAnthropicError(Exception):
     """Stands in for ``anthropic.AnthropicError``."""
 
 
+class FakeOpenAIRateLimitError(FakeOpenAIError):
+    """An OpenAI rate-limit error with an optional numeric ``Retry-After`` header."""
+
+    def __init__(self, message="rate limited", *, retry_after=None):
+        super().__init__(message)
+        headers = {"retry-after": str(retry_after)} if retry_after is not None else {}
+        self.response = types.SimpleNamespace(headers=headers)
+
+
+class FakeAnthropicRateLimitError(FakeAnthropicError):
+    """An Anthropic rate-limit error with an optional numeric ``Retry-After`` header."""
+
+    def __init__(self, message="rate limited", *, retry_after=None):
+        super().__init__(message)
+        headers = {"retry-after": str(retry_after)} if retry_after is not None else {}
+        self.response = types.SimpleNamespace(headers=headers)
+
+
 async def _aiter(items):
     for item in items:
         yield item
@@ -123,7 +141,8 @@ def install_openai(monkeypatch, *, content="hi", chunks=("a", "b"),
     if vectors is None:
         vectors = ([0.1, 0.2],)   # a nested list would be a shared mutable default in the signature
     module = types.ModuleType("openai")
-    module.OpenAIError = FakeOpenAIError   # type: ignore[attr-defined]
+    module.OpenAIError     = FakeOpenAIError           # type: ignore[attr-defined]
+    module.RateLimitError  = FakeOpenAIRateLimitError  # type: ignore[attr-defined]
 
     def _record(kwargs):
         if capture is not None:
@@ -273,7 +292,8 @@ def install_anthropic(monkeypatch, *, content="hi", blocks=None, chunks=("a", "b
     constructor args (timeout, max_retries); ``aclient_builds`` records "async" each time
     ``AsyncAnthropic`` is constructed (to prove lazy build / caching)."""
     module = types.ModuleType("anthropic")
-    module.AnthropicError = FakeAnthropicError   # type: ignore[attr-defined]
+    module.AnthropicError = FakeAnthropicError                 # type: ignore[attr-defined]
+    module.RateLimitError = FakeAnthropicRateLimitError        # type: ignore[attr-defined]
 
     def _sync_close():
         if close_calls is not None:

@@ -78,6 +78,7 @@ class OpenAICompatibleClient(_BaseClient):
         try:
             import httpx
             from openai import OpenAI, OpenAIError
+            from openai import RateLimitError as _OpenAIRateLimitError
         except ImportError as err:
             raise ProviderUnavailableError(
                 "the openai package is required but could not be imported; reinstall thinchat"
@@ -96,6 +97,8 @@ class OpenAICompatibleClient(_BaseClient):
         self._max_retries     = max_retries
         # Catch only the SDK's own error family so a bug in our code surfaces as itself.
         self._sdk_error       = OpenAIError
+        self._ratelimit_error = _OpenAIRateLimitError
+        self._provider_label  = provider
         # The streaming iteration path does NOT wrap transport failures in OpenAIError, so
         # a mid-stream disconnect raises a raw httpx error; catch that base there too.
         self._stream_errors   = (OpenAIError, httpx.HTTPError)
@@ -142,7 +145,7 @@ class OpenAICompatibleClient(_BaseClient):
                     if delta:
                         yield delta
         except self._stream_errors as err:
-            raise LLMError(f"{self._provider} stream failed: {err}") from err
+            raise self._sdk_failure(err, "stream") from err
 
     async def astream(self, prompt: str, *, system: str | None = None) -> AsyncIterator[str]:
         request = self._make_request(self._make_messages(prompt, system), json_mode=False)
@@ -155,7 +158,7 @@ class OpenAICompatibleClient(_BaseClient):
                     if delta:
                         yield delta
         except self._stream_errors as err:
-            raise LLMError(f"{self._provider} stream failed: {err}") from err
+            raise self._sdk_failure(err, "stream") from err
 
     def embed(self, texts: Sequence[str], *, model: str | None = None) -> list[list[float]]:
         """Return one embedding vector per input text (empty input -> empty list, no call).
@@ -166,7 +169,7 @@ class OpenAICompatibleClient(_BaseClient):
         try:
             response = self._client.embeddings.create(model=model or self._embed_model, input=text_list)
         except self._sdk_error as err:
-            raise LLMError(f"{self._provider} embedding failed: {err}") from err
+            raise self._sdk_failure(err, "embedding") from err
         return _extract_embedding_vectors(response)
 
     async def aembed(self, texts: Sequence[str], *, model: str | None = None) -> list[list[float]]:
@@ -177,7 +180,7 @@ class OpenAICompatibleClient(_BaseClient):
         try:
             response = await self._get_aclient().embeddings.create(model=model or self._embed_model, input=text_list)
         except self._sdk_error as err:
-            raise LLMError(f"{self._provider} embedding failed: {err}") from err
+            raise self._sdk_failure(err, "embedding") from err
         return _extract_embedding_vectors(response)
 
     # Native JSON mode where the endpoint honours it, else the base's prompt-steered path.
@@ -191,14 +194,14 @@ class OpenAICompatibleClient(_BaseClient):
         try:
             response = self._client.chat.completions.create(**self._make_request(messages, json_mode=json_mode))
         except self._sdk_error as err:
-            raise LLMError(f"{self._provider} completion failed: {err}") from err
+            raise self._sdk_failure(err, "completion") from err
         return _extract_chat_text(response)
 
     async def _achat(self, messages: list[dict[str, str]], *, json_mode: bool = False) -> str:
         try:
             response = await self._get_aclient().chat.completions.create(**self._make_request(messages, json_mode=json_mode))
         except self._sdk_error as err:
-            raise LLMError(f"{self._provider} completion failed: {err}") from err
+            raise self._sdk_failure(err, "completion") from err
         return _extract_chat_text(response)
 
     def _make_request(self, messages: list[dict[str, str]], *, json_mode: bool) -> dict[str, object]:

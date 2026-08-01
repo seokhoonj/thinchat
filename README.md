@@ -11,7 +11,7 @@ A thin, unified client for four LLM providers — **claude, openai, gemini, olla
 
 Name a provider, then call it. Every client offers completion — whole, streamed, or
 JSON-structured — and, where the provider has one, embeddings, each with an async twin. No
-gateway, no router, no cost tracking: just the calls, over the providers' own SDKs.
+gateway, no router, no cost tracking: just the calls, over the openai and anthropic SDKs.
 
 ## 1. Install
 
@@ -30,17 +30,17 @@ from thinchat import make_client
 
 llm = make_client("claude")                     # key from CLAUDE_API_KEY
 print(llm.complete("Say hi in one word."))
-print(llm.complete("Name a color.", system="Answer in one word."))   # system= steers any verb
+print(llm.complete("Name a color.", system="Answer in one word."))   # system= steers the generation verbs
 
-# Structured output: reply parsed into a JSON object. The schema steers generation
-# but is not validated locally, so check the returned dict's fields yourself.
-verdict = llm.parse(
-    "Is this an ad? 'Buy now, 50% off — order today'",
+# Structured output: you invent the schema; the model fills a JSON object into that shape.
+# It steers generation but is not validated locally, so check the returned fields yourself.
+review = llm.parse(
+    "Analyze the sentiment: 'Fast shipping and great quality.'",
     schema={"type": "object",
-            "properties": {"is_ad": {"type": "boolean"}, "reason": {"type": "string"}},
-            "required": ["is_ad"]},
+            "properties": {"sentiment": {"type": "string"}, "score": {"type": "number"}},
+            "required": ["sentiment"]},
 )
-print(verdict["is_ad"])
+print(review["sentiment"])
 
 # Streaming.
 for chunk in make_client("claude").stream("Count to five."):
@@ -111,6 +111,23 @@ the package's failures:
 - `ProviderUnavailableError` — the provider's SDK isn't installed, or no API key is set.
 - `UnsupportedError` — the provider lacks the capability (e.g. embeddings on Claude).
 - `LLMError` — the API call failed, or the reply was empty or malformed.
+- `RateLimitError` — a 429 rate limit after the SDK's own retries. It is a subclass of
+  `LLMError`, so existing handlers still catch it, and its `retry_after` is how many
+  seconds to wait before trying again (from the server's Retry-After), or `None` when the
+  server did not give one.
+
+The vendor SDK performs the actual backoff through `max_retries`, honoring Retry-After;
+thinchat adds no retry loop.
+
+```python
+from thinchat import make_client, RateLimitError
+
+with make_client("gemini") as llm:
+    try:
+        print(llm.complete("Say hi."))
+    except RateLimitError as e:
+        print(f"rate limited; wait {e.retry_after} seconds")
+```
 
 ## 6. Lifecycle
 
@@ -137,13 +154,13 @@ flowchart LR
   C --> V["complete · stream · parse · embed<br/>(+ a-prefixed async twins)"]
   V --> S{{"vendor SDK"}}
   S -->|ok| O(["str · dict · list float · stream"])
-  S -->|"SDK / transport error"| E(["LLMError"])
+  S -->|"SDK / transport error"| E(["LLMError<br/>RateLimitError for 429"])
 ```
 
 `make_client` looks the provider up in one factory map: openai/gemini/ollama share a single
 class over the openai SDK (they differ only in data); claude has its own over anthropic.
 A call builds the request, hits the SDK, and either extracts the reply or maps the failure
-to one `LLMError`.
+to `LLMError`, using `RateLimitError` for a 429 after the SDK's retries.
 
 ## 8. License
 

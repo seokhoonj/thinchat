@@ -11,7 +11,7 @@
 
 provider 이름만 대면 호출됩니다. 모든 클라이언트가 completion(전체·스트리밍·JSON 구조화)을
 제공하고, provider가 지원하면 embeddings도 제공하며, 각각 async 짝이 있습니다. gateway도,
-router도, 비용 추적도 없이 — provider 자신의 SDK 위에서 호출만 합니다.
+router도, 비용 추적도 없이 — openai·anthropic 두 SDK 위에서 호출만 합니다.
 
 ## 1. 설치
 
@@ -28,32 +28,33 @@ Python 3.11+ 필요. 두 provider SDK(openai와 anthropic)가 함께 설치되�
 from thinchat import make_client
 
 llm = make_client("claude")                     # 키는 CLAUDE_API_KEY에서
-print(llm.complete("Say hi in one word."))
-print(llm.complete("Name a color.", system="Answer in one word."))   # system=은 모든 verb를 유도
+print(llm.complete("대한민국 수도가 어디야?"))
+print(llm.complete("파이썬이 뭐야?", system="한 문장으로만 답해줘."))   # system=은 생성 verb(complete·stream·parse)에 적용
 
-# 구조화 출력: 응답을 JSON 객체로 파싱. schema는 생성을 유도할 뿐 로컬에서 검증하지 않으므로,
-# 반환된 dict의 필드는 직접 확인하세요.
-verdict = llm.parse(
-    "Is this an ad? 'Buy now, 50% off — order today'",
+# 구조화 출력: schema는 정해진 것이 아니라 본인이 자유롭게 정의하면 됩니다 — 모델이 그 모양의
+# JSON 객체로 채워 줍니다. 다만 결과값 검증이 100% 되지는 않으므로 반환된 dict의 필드가
+# 적절히 되어 있는지 직접 확인하고 쓰셔야 합니다.
+review = llm.parse(
+    "이 리뷰 감정을 분석해줘: '배송도 빠르고 품질도 만족스러워요'",
     schema={"type": "object",
-            "properties": {"is_ad": {"type": "boolean"}, "reason": {"type": "string"}},
-            "required": ["is_ad"]},
+            "properties": {"sentiment": {"type": "string"}, "score": {"type": "number"}},
+            "required": ["sentiment"]},
 )
-print(verdict["is_ad"])
+print(review["sentiment"])
 
 # 스트리밍.
-for chunk in make_client("claude").stream("Count to five."):
+for chunk in make_client("claude").stream("가을에 대한 짧은 시 하나 써줘."):
     print(chunk, end="")
 
 # 임베딩 (openai / gemini / ollama; Claude는 없음).
-vectors = make_client("openai").embed(["hello", "world"])
+vectors = make_client("openai").embed(["강아지", "고양이"])
 ```
 
 모든 verb에는 async 짝이 있습니다 — `acomplete`, `astream`, `aparse`, `aembed`:
 
 ```python
 llm = make_client("claude")
-text = await llm.acomplete("Summarize in one line: ...")
+text = await llm.acomplete("이 문장을 한 줄로 요약해줘: ...")
 ```
 
 ## 3. Provider
@@ -108,6 +109,22 @@ thinchat이 의도적으로 던지는 모든 에러는 `ThinchatError`에서 파
 - `ProviderUnavailableError` — provider의 SDK가 설치되지 않았거나, API 키가 없음.
 - `UnsupportedError` — provider가 그 기능을 지원하지 않음(예: Claude의 embeddings).
 - `LLMError` — API 호출이 실패했거나, 응답이 비었거나 형식이 잘못됨.
+- `RateLimitError` — SDK 자체 재시도 후에도 발생한 429 rate limit. `LLMError`의 subclass라
+  기존 handler도 그대로 잡으며, `retry_after`에는 다시 시도하기까지 몇 초 기다리면 되는지(서버가
+  준 Retry-After 값)가, 서버가 안 주면 `None`이 담깁니다.
+
+실제 backoff는 vendor SDK가 `max_retries`를 통해 Retry-After를 준수하며 수행하고, thinchat은
+별도의 retry loop를 추가하지 않습니다.
+
+```python
+from thinchat import make_client, RateLimitError
+
+with make_client("gemini") as llm:
+    try:
+        print(llm.complete("안녕!"))
+    except RateLimitError as e:
+        print(f"rate limited; wait {e.retry_after} seconds")
+```
 
 ## 6. 라이프사이클
 
@@ -134,12 +151,13 @@ flowchart LR
   C --> V["complete · stream · parse · embed<br/>(+ a-prefixed async twins)"]
   V --> S{{"vendor SDK"}}
   S -->|ok| O(["str · dict · list float · stream"])
-  S -->|"SDK / transport error"| E(["LLMError"])
+  S -->|"SDK / transport error"| E(["LLMError<br/>429는 RateLimitError"])
 ```
 
 `make_client`는 provider를 하나의 factory map에서 찾습니다: openai/gemini/ollama는 openai
 SDK 위의 단일 클래스를 공유하고(데이터만 다름), claude는 anthropic 위에 자기 것을 둡니다.
-호출은 요청을 조립해 SDK를 치고, 응답을 추출하거나 실패를 하나의 `LLMError`로 매핑합니다.
+호출은 요청을 조립해 SDK를 치고, 응답을 추출하거나 실패를 `LLMError`로 매핑하되 SDK 재시도
+후의 429에는 `RateLimitError`를 사용합니다.
 
 ## 8. 라이선스
 

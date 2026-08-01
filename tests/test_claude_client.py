@@ -7,9 +7,14 @@ from typing import Any
 import httpx
 import pytest
 
-from tests.fakes import FakeAnthropicError, anthropic_text_block, install_anthropic
+from tests.fakes import (
+    FakeAnthropicError,
+    FakeAnthropicRateLimitError,
+    anthropic_text_block,
+    install_anthropic,
+)
 from thinchat import make_client
-from thinchat.errors import LLMError, UnsupportedError
+from thinchat.errors import LLMError, RateLimitError, UnsupportedError
 
 
 def _client(monkeypatch, **kwargs):
@@ -147,6 +152,26 @@ async def test_astream_maps_a_midstream_sdk_error_to_llm_error(monkeypatch):
         [chunk async for chunk in client.astream("q")]
 
 
+def test_stream_maps_a_rate_limit_and_carries_retry_after(monkeypatch):
+    error = FakeAnthropicRateLimitError(retry_after=7)
+    client = _client(monkeypatch, chunks=("x", "y"), stream_error_after=1,
+                     stream_exc=error)
+    stream = client.stream("q")
+    assert next(stream) == "x"
+    with pytest.raises(RateLimitError) as excinfo:
+        list(stream)
+    assert excinfo.value.retry_after == 7.0
+
+
+async def test_astream_maps_a_rate_limit_and_carries_retry_after(monkeypatch):
+    error = FakeAnthropicRateLimitError(retry_after=7)
+    client = _client(monkeypatch, chunks=("x", "y"), stream_error_after=1,
+                     stream_exc=error)
+    with pytest.raises(RateLimitError) as excinfo:
+        [chunk async for chunk in client.astream("q")]
+    assert excinfo.value.retry_after == 7.0
+
+
 def test_stream_maps_a_midstream_transport_error_to_llm_error(monkeypatch):
     client = _client(monkeypatch, chunks=("x", "y"), stream_error_after=1,
                      stream_exc=httpx.ReadError("connection dropped"))
@@ -272,6 +297,28 @@ async def test_async_embeddings_are_unsupported(monkeypatch):
 def test_complete_maps_an_sdk_error_to_llm_error(monkeypatch):
     with pytest.raises(LLMError):
         _client(monkeypatch, error=FakeAnthropicError("down")).complete("q")
+
+
+def test_complete_maps_a_rate_limit_and_carries_retry_after(monkeypatch):
+    error = FakeAnthropicRateLimitError(retry_after=7)
+    with pytest.raises(RateLimitError) as excinfo:
+        _client(monkeypatch, error=error).complete("q")
+    assert excinfo.value.retry_after == 7.0
+
+
+def test_rate_limit_without_retry_after_carries_none(monkeypatch):
+    with pytest.raises(RateLimitError) as excinfo:
+        _client(monkeypatch, error=FakeAnthropicRateLimitError()).complete("q")
+    assert excinfo.value.retry_after is None
+
+
+def test_rate_limit_error_remains_an_llm_error():
+    assert issubclass(RateLimitError, LLMError)
+
+
+async def test_acomplete_maps_a_rate_limit(monkeypatch):
+    with pytest.raises(RateLimitError):
+        await _client(monkeypatch, error=FakeAnthropicRateLimitError()).acomplete("q")
 
 
 async def test_acomplete_maps_an_sdk_error_to_llm_error(monkeypatch):

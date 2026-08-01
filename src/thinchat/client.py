@@ -12,11 +12,12 @@ primitives -- ``complete``, ``acomplete``, ``stream``, ``astream`` -- and declar
 from __future__ import annotations
 
 import inspect
+import math
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Iterator, Sequence
 from typing import Any, Literal, Protocol, Self, runtime_checkable
 
-from thinchat.errors import UnsupportedError
+from thinchat.errors import LLMError, RateLimitError, UnsupportedError
 from thinchat.structured_output import make_json_instruction, parse_json
 
 __all__ = ["Capability", "Client", "Provider"]
@@ -31,6 +32,26 @@ Provider = Literal["claude", "openai", "gemini", "ollama"]
 Capability = Literal["completion", "streaming", "structured_output", "embeddings"]
 
 
+def _retry_after_seconds(err: object) -> float | None:
+    """Return a numeric ``Retry-After`` response header as non-negative finite seconds,
+    or None when the response has no usable numeric value."""
+    response = getattr(err, "response", None)
+    headers  = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    getter = getattr(headers, "get", None)
+    if getter is None:
+        return None
+    raw = getter("retry-after")
+    if raw is None:
+        return None
+    try:
+        seconds = float(raw)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return seconds if math.isfinite(seconds) and seconds >= 0 else None
+
+
 @runtime_checkable
 class Client(Protocol):
     """One LLM client. ``model`` is the chat model it calls; the verbs turn a prompt into
@@ -42,6 +63,9 @@ class Client(Protocol):
             non-streaming verbs (complete/acomplete/parse/aparse/embed/aembed). For
             stream/astream the error surfaces *while iterating*, not at the call, and an
             empty stream is not itself an error.
+        RateLimitError: a subclass of LLMError raised when a rate limit (HTTP 429) outlives
+            the SDK's own retries; it carries ``retry_after``. An ``except LLMError`` catches
+            it too -- catch it by name only to tell a transient limit from a permanent failure.
         UnsupportedError: embed / aembed on a provider with no embeddings API (Claude);
             check ``supports("embeddings")`` first."""
 
@@ -88,6 +112,18 @@ class _BaseClient(ABC):
     capabilities: frozenset[Capability]
     _client:      Any   # the vendor's sync SDK client (owns an HTTP connection pool)
     _aclient:     Any   # the vendor's async SDK client, or None until first async use
+    _ratelimit_error: type[BaseException]   # the vendor SDK's 429 exception, mapped to RateLimitError
+    _provider_label:  str                   # provider name shown in error messages
+
+    def _sdk_failure(self, err: Exception, action: str) -> LLMError:
+        """Map a caught SDK error to a rate-limit error with any requested wait, or a
+        plain API failure. ``action`` names the failed completion, embedding, or stream."""
+        if isinstance(err, self._ratelimit_error):
+            return RateLimitError(
+                f"{self._provider_label} {action} rate-limited: {err}",
+                retry_after=_retry_after_seconds(err),
+            )
+        return LLMError(f"{self._provider_label} {action} failed: {err}")
 
     def supports(self, capability: Capability) -> bool:
         """Whether this client offers ``capability`` -- the check to make before calling

@@ -7,9 +7,9 @@ from typing import Any
 import httpx
 import pytest
 
-from tests.fakes import FakeOpenAIError, install_openai
+from tests.fakes import FakeOpenAIError, FakeOpenAIRateLimitError, install_openai
 from thinchat import make_client
-from thinchat.errors import LLMError
+from thinchat.errors import LLMError, RateLimitError
 
 
 def _client(monkeypatch, **kwargs):
@@ -151,6 +151,26 @@ async def test_astream_maps_a_midstream_sdk_error_to_llm_error(monkeypatch):
     client = _client(monkeypatch, chunks=("a", "b"), stream_error_after=1)
     with pytest.raises(LLMError):
         [chunk async for chunk in client.astream("hi")]
+
+
+def test_stream_maps_a_midstream_rate_limit_and_carries_retry_after(monkeypatch):
+    error = FakeOpenAIRateLimitError(retry_after=7)
+    client = _client(monkeypatch, chunks=("a", "b"), stream_error_after=1,
+                     stream_exc=error)
+    stream = client.stream("hi")
+    assert next(stream) == "a"
+    with pytest.raises(RateLimitError) as excinfo:
+        list(stream)
+    assert excinfo.value.retry_after == 7.0
+
+
+async def test_astream_maps_a_midstream_rate_limit_and_carries_retry_after(monkeypatch):
+    error = FakeOpenAIRateLimitError(retry_after=7)
+    client = _client(monkeypatch, chunks=("a", "b"), stream_error_after=1,
+                     stream_exc=error)
+    with pytest.raises(RateLimitError) as excinfo:
+        [chunk async for chunk in client.astream("hi")]
+    assert excinfo.value.retry_after == 7.0
 
 
 def test_stream_maps_a_midstream_transport_error_to_llm_error(monkeypatch):
@@ -295,6 +315,28 @@ def test_complete_maps_an_sdk_error_to_llm_error(monkeypatch):
         _client(monkeypatch, error=FakeOpenAIError("boom")).complete("hi")
 
 
+def test_complete_maps_a_rate_limit_and_carries_retry_after(monkeypatch):
+    error = FakeOpenAIRateLimitError(retry_after=7)
+    with pytest.raises(RateLimitError) as excinfo:
+        _client(monkeypatch, error=error).complete("hi")
+    assert excinfo.value.retry_after == 7.0
+
+
+def test_rate_limit_without_retry_after_carries_none(monkeypatch):
+    with pytest.raises(RateLimitError) as excinfo:
+        _client(monkeypatch, error=FakeOpenAIRateLimitError()).complete("hi")
+    assert excinfo.value.retry_after is None
+
+
+def test_rate_limit_error_remains_an_llm_error():
+    assert issubclass(RateLimitError, LLMError)
+
+
+async def test_acomplete_maps_a_rate_limit(monkeypatch):
+    with pytest.raises(RateLimitError):
+        await _client(monkeypatch, error=FakeOpenAIRateLimitError()).acomplete("hi")
+
+
 async def test_acomplete_maps_an_sdk_error_to_llm_error(monkeypatch):
     with pytest.raises(LLMError):
         await _client(monkeypatch, error=FakeOpenAIError("boom")).acomplete("hi")
@@ -305,9 +347,23 @@ def test_embed_maps_an_sdk_error_to_llm_error(monkeypatch):
         _client(monkeypatch, error=FakeOpenAIError("boom")).embed(["a"])
 
 
+def test_embed_maps_a_rate_limit_and_carries_retry_after(monkeypatch):
+    error = FakeOpenAIRateLimitError(retry_after=7)
+    with pytest.raises(RateLimitError) as excinfo:
+        _client(monkeypatch, error=error).embed(["a"])
+    assert excinfo.value.retry_after == 7.0
+
+
 async def test_aembed_maps_an_sdk_error_to_llm_error(monkeypatch):
     with pytest.raises(LLMError):
         await _client(monkeypatch, error=FakeOpenAIError("boom")).aembed(["a"])
+
+
+async def test_aembed_maps_a_rate_limit_and_carries_retry_after(monkeypatch):
+    error = FakeOpenAIRateLimitError(retry_after=7)
+    with pytest.raises(RateLimitError) as excinfo:
+        await _client(monkeypatch, error=error).aembed(["a"])
+    assert excinfo.value.retry_after == 7.0
 
 
 def test_a_non_sdk_error_is_not_masked_as_llm_error(monkeypatch):

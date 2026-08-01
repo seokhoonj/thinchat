@@ -23,6 +23,7 @@ from thinchat.client import Capability, Client, Provider
 from thinchat.errors import (
     LLMError,
     ProviderUnavailableError,
+    RateLimitError,
     ThinchatError,
     UnknownProviderError,
     UnsupportedError,
@@ -36,6 +37,7 @@ __all__ = [
     "ClaudeClient",
     "Client",
     "LLMError",
+    "RateLimitError",
     "OpenAICompatibleClient",
     "Provider",
     "ProviderUnavailableError",

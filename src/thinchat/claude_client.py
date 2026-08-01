@@ -46,6 +46,7 @@ class ClaudeClient(_BaseClient):
         try:
             import httpx
             from anthropic import Anthropic, AnthropicError
+            from anthropic import RateLimitError as _AnthropicRateLimitError
         except ImportError as err:
             raise ProviderUnavailableError(
                 "the anthropic package is required but could not be imported; reinstall thinchat"
@@ -60,10 +61,12 @@ class ClaudeClient(_BaseClient):
         self._max_retries   = max_retries
         # Catch only Anthropic's own error family (so our bugs surface as themselves); the
         # streaming path also raises raw httpx on a mid-stream transport drop.
-        self._sdk_error     = AnthropicError
-        self._stream_errors = (AnthropicError, httpx.HTTPError)
-        self._client        = Anthropic(api_key=api_key, **self._transport_kwargs())
-        self._aclient       = None   # built on first async use (see _make_aclient)
+        self._sdk_error       = AnthropicError
+        self._ratelimit_error = _AnthropicRateLimitError
+        self._provider_label  = "claude"
+        self._stream_errors   = (AnthropicError, httpx.HTTPError)
+        self._client          = Anthropic(api_key=api_key, **self._transport_kwargs())
+        self._aclient         = None   # built on first async use (see _make_aclient)
 
     def _transport_kwargs(self) -> dict[str, Any]:
         # timeout / max_retries are HTTP-client config for the SDK constructor; send each
@@ -85,14 +88,14 @@ class ClaudeClient(_BaseClient):
         try:
             response = self._client.messages.create(**self._make_request(prompt, system))
         except self._sdk_error as err:
-            raise LLMError(f"claude completion failed: {err}") from err
+            raise self._sdk_failure(err, "completion") from err
         return _extract_message_text(response)
 
     async def acomplete(self, prompt: str, *, system: str | None = None) -> str:
         try:
             response = await self._get_aclient().messages.create(**self._make_request(prompt, system))
         except self._sdk_error as err:
-            raise LLMError(f"claude completion failed: {err}") from err
+            raise self._sdk_failure(err, "completion") from err
         return _extract_message_text(response)
 
     def stream(self, prompt: str, *, system: str | None = None) -> Iterator[str]:
@@ -100,7 +103,7 @@ class ClaudeClient(_BaseClient):
             with self._client.messages.stream(**self._make_request(prompt, system)) as events:
                 yield from events.text_stream
         except self._stream_errors as err:
-            raise LLMError(f"claude stream failed: {err}") from err
+            raise self._sdk_failure(err, "stream") from err
 
     async def astream(self, prompt: str, *, system: str | None = None) -> AsyncIterator[str]:
         try:
@@ -108,7 +111,7 @@ class ClaudeClient(_BaseClient):
                 async for chunk in events.text_stream:
                     yield chunk
         except self._stream_errors as err:
-            raise LLMError(f"claude stream failed: {err}") from err
+            raise self._sdk_failure(err, "stream") from err
 
     def _make_request(self, prompt: str, system: str | None) -> dict[str, object]:
         request: dict[str, object] = {
