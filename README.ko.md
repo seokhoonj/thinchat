@@ -76,20 +76,36 @@ URL·키·기본 모델만 다릅니다. Ollama는 로컬에서 실행되며(`OL
 자체 기본이 적용되고, 예외는 `max_tokens`뿐입니다 — Anthropic이 필수로 요구해 claude는 기본
 4096을 쓰고, OpenAI 호환 provider들은 생략해 모델이 정하게 둡니다.
 
-키는 환경에서 읽습니다. 셸 프로파일(`~/.bashrc`, `~/.zshrc`)에 한 번 넣어두면 모든 세션이
-인식합니다 — thinchat은 라이브러리라 자체 파일 위치를 강제하지 않습니다:
-
-```sh
-export CLAUDE_API_KEY="sk-ant-..."
-export OPENAI_API_KEY="sk-..."
-export GEMINI_API_KEY="..."          # ollama는 로컬이라 키 불필요
-```
-
-또는 환경변수를 덮어쓰며 키를 직접 넘길 수도 있습니다:
+thinchat은 provider의 키를 세 단계로, 이 순서로 해석합니다: `make_client`에 직접 넘긴
+`api_key=`, 그다음 `<PROVIDER>_API_KEY` 환경변수, 그다음 thinchat 자체 저장소
+(`~/.config/thinchat/credentials.json`, 권한 0600). 라이브러리 코어는 그대로입니다 —
+`api_key=`를 넘기면 파일은 전혀 읽지 않습니다:
 
 ```python
 llm = make_client("claude", api_key="sk-ant-...", model="claude-haiku-4-5-20251001")
 ```
+
+셸 세션이라면 프로파일(`~/.bashrc`, `~/.zshrc`)에 환경변수를 한 번 넣어두면 모든 세션이
+인식합니다:
+
+```sh
+export CLAUDE_API_KEY="sk-ant-..."   # ollama는 로컬이라 키 불필요
+```
+
+또는 `thinchat` 명령으로 키를 한 번 저장해두면 0600 저장소에 기록되어 export 없이도 모든
+세션이 찾습니다 — 값은 절대 출력되지 않습니다(`set`은 에코 없이 입력받고, `get`은 마스킹):
+
+```sh
+thinchat set claude      # 키를 입력받아 저장
+thinchat list            # 어떤 provider에 키가 저장됐는지
+thinchat get claude      # 해석된 키를 마스킹해서 표시
+thinchat unset claude    # 저장된 키 삭제
+```
+
+같은 동작을 프로그램에서도 쓸 수 있습니다 — `thinchat.set_api_key("claude", value=...)`,
+`thinchat.stored_providers()`, `thinchat.unset_api_key(...)` — 그래서 상위 애플리케이션이
+사용자를 위해 저장소를 대신 채워줄 수 있습니다. 환경변수는 항상 저장 파일을 이기므로, 컨테이너나
+CI에서는 `<PROVIDER>_API_KEY`만 설정하면 파일 없이 저장소를 덮어씁니다.
 
 ## 4. 지원 기능(Capabilities)
 
@@ -108,6 +124,8 @@ thinchat이 의도적으로 던지는 모든 에러는 `ThinchatError`에서 파
 - `UnknownProviderError` — 이름이 네 provider 중 하나가 아님.
 - `ProviderUnavailableError` — provider의 SDK가 설치되지 않았거나, API 키가 없음.
 - `UnsupportedError` — provider가 그 기능을 지원하지 않음(예: Claude의 embeddings).
+- `CredentialStoreError` — 저장소 파일(`~/.config/thinchat/credentials.json`)이 존재하지만
+  읽을 수 없거나 형식이 잘못됨, 또는 쓰기에 실패함.
 - `LLMError` — API 호출이 실패했거나, 응답이 비었거나 형식이 잘못됨.
 - `RateLimitError` — SDK 자체 재시도 후에도 발생한 429 rate limit. `LLMError`의 subclass라
   기존 handler도 그대로 잡으며, `retry_after`에는 다시 시도하기까지 몇 초 기다리면 되는지(서버가

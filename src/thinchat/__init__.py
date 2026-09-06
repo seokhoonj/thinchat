@@ -21,6 +21,7 @@ from importlib.metadata import PackageNotFoundError, version
 from thinchat.claude_client import ClaudeClient
 from thinchat.client import Capability, Client, Provider
 from thinchat.errors import (
+    CredentialStoreError,
     LLMError,
     ProviderUnavailableError,
     RateLimitError,
@@ -28,6 +29,7 @@ from thinchat.errors import (
     UnknownProviderError,
     UnsupportedError,
 )
+from thinchat.keys import get_api_key, set_api_key, stored_providers, unset_api_key
 from thinchat.openai_client import OpenAICompatibleClient
 from thinchat.providers import PROVIDERS, make_client
 
@@ -36,6 +38,7 @@ __all__ = [
     "Capability",
     "ClaudeClient",
     "Client",
+    "CredentialStoreError",
     "LLMError",
     "RateLimitError",
     "OpenAICompatibleClient",
@@ -44,7 +47,11 @@ __all__ = [
     "ThinchatError",
     "UnknownProviderError",
     "UnsupportedError",
+    "get_api_key",
     "make_client",
+    "set_api_key",
+    "stored_providers",
+    "unset_api_key",
 ]
 
 try:

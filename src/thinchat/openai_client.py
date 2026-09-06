@@ -244,10 +244,11 @@ def _make_openai_client(
             f"{provider!r} is not an OpenAI-compatible provider; "
             f"choose one of {', '.join(_SPEC_BY_PROVIDER)}"
         )
-    key = api_key if api_key is not None else keys.get_api_key(provider)
+    key = keys.get_api_key(provider, override=api_key)
     if spec.needs_key and not key:
         raise ProviderUnavailableError(
-            f"no API key for {provider}: set {keys.ENV_BY_PROVIDER[provider]} or pass api_key="
+            f"no API key for {provider}: pass api_key=, set {keys.ENV_BY_PROVIDER[provider]}, "
+            f"or run 'thinchat set {provider}'"
         )
     base_url = _ollama_base_url() if spec.is_local else spec.base_url
     return OpenAICompatibleClient(

@@ -77,21 +77,38 @@ An unset value leaves the provider's own default in place, except `max_tokens`, 
 Anthropic requires and so defaults to 4096 for claude (the OpenAI-compatible providers omit
 it, letting the model decide).
 
-Keys are read from the environment. Set them once in your shell profile (`~/.bashrc`,
-`~/.zshrc`) so every session picks them up — thinchat is a library and never imposes a file
-location of its own:
-
-```sh
-export CLAUDE_API_KEY="sk-ant-..."
-export OPENAI_API_KEY="sk-..."
-export GEMINI_API_KEY="..."          # ollama runs locally and needs no key
-```
-
-Or pass a key explicitly, which overrides the environment:
+thinchat resolves a provider's key in three tiers, in order: an explicit `api_key=` passed to
+`make_client`, then the `<PROVIDER>_API_KEY` environment variable, then thinchat's own store
+(`~/.config/thinchat/credentials.json`, mode 0600). The library core is unchanged — pass
+`api_key=` and no file is ever read:
 
 ```python
 llm = make_client("claude", api_key="sk-ant-...", model="claude-haiku-4-5-20251001")
 ```
+
+For a shell session, set the environment variable once in your profile (`~/.bashrc`,
+`~/.zshrc`) so every session picks it up:
+
+```sh
+export CLAUDE_API_KEY="sk-ant-..."   # ollama runs locally and needs no key
+```
+
+Or save a key once with the `thinchat` command, which writes the 0600 store so every session
+finds it without an export — the value is never printed (`set` reads it without echo, `get`
+masks it):
+
+```sh
+thinchat set claude      # prompt for the key, store it
+thinchat list            # which providers have a stored key
+thinchat get claude      # show the resolved key, masked
+thinchat unset claude    # remove it
+```
+
+The same operations are available programmatically — `thinchat.set_api_key("claude",
+value=...)`, `thinchat.stored_providers()`, `thinchat.unset_api_key(...)` — so a parent
+application can populate the store for its user. An environment variable always wins over the
+stored file, so a container or CI run overrides the store by setting `<PROVIDER>_API_KEY`,
+with no file needed.
 
 ## 4. Capabilities
 
@@ -110,6 +127,8 @@ the package's failures:
 - `UnknownProviderError` — the name isn't one of the four providers.
 - `ProviderUnavailableError` — the provider's SDK isn't installed, or no API key is set.
 - `UnsupportedError` — the provider lacks the capability (e.g. embeddings on Claude).
+- `CredentialStoreError` — the stored-key file (`~/.config/thinchat/credentials.json`) is
+  present but unreadable or malformed, or could not be written.
 - `LLMError` — the API call failed, or the reply was empty or malformed.
 - `RateLimitError` — a 429 rate limit after the SDK's own retries. It is a subclass of
   `LLMError`, so existing handlers still catch it, and its `retry_after` is how many

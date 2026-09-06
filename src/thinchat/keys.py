@@ -1,30 +1,125 @@
-"""Resolve a client's API key from the environment.
+"""Resolve, store, and enumerate a provider's API key.
 
-thinchat is a library, not an application, so it reads keys from the environment (or an
-explicit ``api_key=`` a caller passes) and never imposes a file location of its own --
-where keys live on disk is the calling program's decision. Each name follows the provider
-handle you pass to ``make_client`` -- ``<PROVIDER>_API_KEY`` -- so ``make_client("claude")``
-pairs with ``CLAUDE_API_KEY``, matching the roster rather than each vendor SDK's own default.
+thinchat is a library first: a caller that passes ``api_key=`` to ``make_client`` never
+touches a file, and the ``<PROVIDER>_API_KEY`` environment variable still works with nothing
+configured. On top of that, thinchat can persist a key to its own store
+(``~/.config/thinchat/credentials.json``, mode 0600) so a user saves it once with
+``thinchat set <provider>`` instead of exporting it every session. The storage, the
+permission hardening, and the env-over-file resolution are delegated to xdg-kit; this module
+only maps thinchat's provider handles onto that store.
+
+The store is keyed by the same ``<PROVIDER>_API_KEY`` name the environment uses, so a key set
+in either place resolves identically, and a sibling package that writes thinchat's store (a
+``newswatcher setup`` wizard calling ``set_api_key``) shares one source for the LLM key
+rather than keeping its own copy.
 """
 
 from __future__ import annotations
 
-import os
+from typing import get_args
 
-__all__ = ["ENV_BY_PROVIDER", "get_api_key"]
+from xdg_kit import XdgKitError, get_secret, secret_names, set_secret, unset_secret
 
-# The environment variable each provider's key is read from. ollama is absent on purpose:
-# a local server needs no key, so its client passes a dummy the SDK accepts.
+from thinchat.client import Provider
+from thinchat.errors import CredentialStoreError, UnknownProviderError, UnsupportedError
+
+__all__ = ["ENV_BY_PROVIDER", "get_api_key", "set_api_key", "unset_api_key", "stored_providers"]
+
+# The xdg-kit app whose store thinchat's keys live in: ~/.config/thinchat/credentials.json.
+APP = "thinchat"
+
+# The environment variable each provider's key is read from, and the name it is stored under.
+# ollama is absent on purpose: a local server needs no key, so its client passes a dummy the
+# SDK accepts. Consumers import this map by name -- keep it here.
 ENV_BY_PROVIDER: dict[str, str] = {
     "openai": "OPENAI_API_KEY",
     "gemini": "GEMINI_API_KEY",
     "claude": "CLAUDE_API_KEY",
 }
 
+# Every provider make_client knows, so a write path can tell a keyless-but-known provider
+# (ollama -> UnsupportedError) from a typo (-> UnknownProviderError). Derived from the one
+# Provider definition so the two never drift.
+_ALL_PROVIDERS: frozenset[str] = frozenset(get_args(Provider))
 
-def get_api_key(provider: str) -> str | None:
-    """Return the API key for ``provider`` from its environment variable, or ``None`` when
-    it is unset (so a client can phrase its own "no key" error) or the provider needs
-    none (ollama). A ``provider`` outside the roster simply reads as "no env"."""
+
+def get_api_key(provider: str, *, override: str | None = None) -> str | None:
+    """Resolve ``provider``'s API key across ``override`` > env > stored file, or ``None``
+    when it is unset everywhere (so a client can phrase its own "no key" error) or the
+    provider needs none (ollama). ``override`` is ``make_client``'s ``api_key=``, kept as the
+    top tier so a caller managing its own secrets never reads the store. A ``provider`` with
+    no key name (ollama, or an unknown handle) simply resolves to ``override``.
+
+    Raises:
+        CredentialStoreError: the store file is present but unreadable or malformed
+            (propagated from the storage backend).
+    """
     name = ENV_BY_PROVIDER.get(provider)
-    return os.environ.get(name) if name is not None else None
+    if name is None:
+        return override
+    try:
+        return get_secret(APP, name, override=override)
+    except XdgKitError as err:
+        raise CredentialStoreError(f"could not read the stored key for {provider}") from err
+
+
+def set_api_key(provider: str, *, value: str) -> None:
+    """Store ``value`` as ``provider``'s API key in thinchat's own store (mode 0600).
+    ``value`` is keyword-only so it cannot be swapped with ``provider``.
+
+    Raises:
+        UnknownProviderError: ``provider`` is not one thinchat supports.
+        UnsupportedError: ``provider`` needs no API key (ollama), so none can be stored.
+        CredentialStoreError: the store could not be written.
+    """
+    name = _stored_name(provider)
+    try:
+        set_secret(APP, name, value=value)
+    except XdgKitError as err:
+        raise CredentialStoreError(f"could not store the key for {provider}") from err
+
+
+def unset_api_key(provider: str) -> None:
+    """Remove ``provider``'s stored key; a no-op when none is stored. Only thinchat's own
+    store is touched -- never the environment.
+
+    Raises:
+        UnknownProviderError: ``provider`` is not one thinchat supports.
+        UnsupportedError: ``provider`` needs no API key (ollama).
+        CredentialStoreError: the store could not be written.
+    """
+    name = _stored_name(provider)
+    try:
+        unset_secret(APP, name)
+    except XdgKitError as err:
+        raise CredentialStoreError(f"could not remove the stored key for {provider}") from err
+
+
+def stored_providers() -> list[str]:
+    """The providers that have a key in thinchat's store, in ``ENV_BY_PROVIDER`` order --
+    never the values. A provider whose key is only in the environment is not listed: this
+    reports the file store alone, so a caller (a setup wizard, the CLI's ``list``) can show
+    what has been saved.
+
+    Raises:
+        CredentialStoreError: the store is present but malformed.
+    """
+    try:
+        stored = set(secret_names(APP))
+    except XdgKitError as err:
+        raise CredentialStoreError("could not read the credential store") from err
+    return [provider for provider, name in ENV_BY_PROVIDER.items() if name in stored]
+
+
+def _stored_name(provider: str) -> str:
+    """The name a key for ``provider`` is filed under, or raise if ``provider`` takes no
+    stored key -- the shared validation for the write paths (``set``/``unset``). ollama is
+    known but keyless (``UnsupportedError``); anything off the roster is a typo
+    (``UnknownProviderError``)."""
+    name = ENV_BY_PROVIDER.get(provider)
+    if name is not None:
+        return name
+    if provider in _ALL_PROVIDERS:
+        raise UnsupportedError(f"{provider} needs no API key, so none can be stored")
+    raise UnknownProviderError(
+        f"unknown provider {provider!r}; choose one of {', '.join(ENV_BY_PROVIDER)}")

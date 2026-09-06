@@ -140,10 +140,11 @@ def _make_claude_client(
         ProviderUnavailableError: the anthropic SDK is not installed, or no API key is set
             (or passed).
     """
-    key = api_key if api_key is not None else keys.get_api_key("claude")
+    key = keys.get_api_key("claude", override=api_key)
     if not key:
         raise ProviderUnavailableError(
-            f"no API key for claude: set {keys.ENV_BY_PROVIDER['claude']} or pass api_key="
+            f"no API key for claude: pass api_key=, set {keys.ENV_BY_PROVIDER['claude']}, "
+            f"or run 'thinchat set claude'"
         )
     return ClaudeClient(
         api_key     = key,

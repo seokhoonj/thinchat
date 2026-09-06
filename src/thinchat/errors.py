@@ -2,10 +2,11 @@
 
 Every error thinchat raises on purpose derives from ``ThinchatError``, so a caller can
 handle this package's failures with one ``except`` without catching unrelated bugs. The
-tree separates the four ways a call can fail: the client could not be built
+tree separates the ways a call can fail: the client could not be built
 (``ProviderUnavailableError``), the name is not one we know (``UnknownProviderError``), the
-client does not offer the requested capability (``UnsupportedError``), or the API call
-itself failed (``LLMError``). One refinement of that last case is broken out: a rate limit
+client does not offer the requested capability (``UnsupportedError``), the stored-key store
+could not be read or written (``CredentialStoreError``), or the API call itself failed
+(``LLMError``). One refinement of that last case is broken out: a rate limit
 (HTTP 429) that outlives the SDK's own retries surfaces as ``RateLimitError``, an
 ``LLMError`` subclass carrying the requested retry delay -- so ``except LLMError`` still
 catches it, while a caller that wants to wait and retry can catch it by its own type.
@@ -20,6 +21,7 @@ __all__ = [
     "RateLimitError",
     "UnknownProviderError",
     "UnsupportedError",
+    "CredentialStoreError",
 ]
 
 
@@ -42,6 +44,14 @@ class UnsupportedError(ThinchatError):
     """The client does not offer the requested capability -- asking Claude for embeddings,
     which Anthropic has no first-party API for. Permanent for that client, so ``supports``
     lets a caller check before calling."""
+
+
+class CredentialStoreError(ThinchatError):
+    """thinchat's stored-key file could not be read or written -- present but unreadable or
+    malformed on a read, or the write failed. Wraps the underlying storage error so a caller
+    handles it as a thinchat failure (``except ThinchatError``) without importing the storage
+    backend's own exception type. Distinct from ``ProviderUnavailableError`` (no key found is
+    a normal, empty result -- this is the store itself being broken)."""
 
 
 class LLMError(ThinchatError):

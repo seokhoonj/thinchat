@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 
 [project]
 name            = "thinchat"
-version         = "0.1.3"
+version         = "0.2.0"
 description     = "A thin, unified client for four LLM providers: claude, openai, gemini, ollama."
 readme          = "README.md"
 license         = "MIT"
@@ -31,16 +31,22 @@ requires-python = ">=3.11"
 # plain `pip install thinchat` is ready for every provider -- each SDK is still imported
 # lazily, only when its client is constructed. httpx is named directly (its transport
 # errors are caught on the streaming path), so it is a direct dependency, not a transitive.
+# xdg-kit backs the credential store: `thinchat set <provider>` and the env-over-file key
+# resolution write and read ~/.config/thinchat/credentials.json (0600) through it.
 dependencies    = [
     "openai>=1.30",
     "anthropic>=0.40",
     "httpx>=0.23",
+    "xdg-kit>=0.1",
 ]
 
 [project.urls]
 Homepage   = "https://github.com/seokhoonj/thinchat"
 Repository = "https://github.com/seokhoonj/thinchat"
 Issues     = "https://github.com/seokhoonj/thinchat/issues"
+
+[project.scripts]
+thinchat = "thinchat.cli:main"
 
 [project.optional-dependencies]
 # Development only; the provider SDKs are base dependencies, installed with the package.
