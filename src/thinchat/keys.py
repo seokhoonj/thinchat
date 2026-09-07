@@ -23,7 +23,14 @@ from xdg_kit import XdgKitError, get_secret, secret_names, set_secret, unset_sec
 from thinchat.client import Provider
 from thinchat.errors import CredentialStoreError, UnknownProviderError, UnsupportedError
 
-__all__ = ["ENV_BY_PROVIDER", "get_api_key", "set_api_key", "unset_api_key", "stored_providers"]
+__all__ = [
+    "ENV_BY_PROVIDER",
+    "get_api_key",
+    "set_api_key",
+    "unset_api_key",
+    "stored_providers",
+    "stored_key_name",
+]
 
 # The xdg-kit app whose store thinchat's keys live in: ~/.config/thinchat/credentials.json.
 APP = "thinchat"
@@ -37,25 +44,30 @@ ENV_BY_PROVIDER: dict[str, str] = {
     "claude": "CLAUDE_API_KEY",
 }
 
-# Every provider make_client knows, so a write path can tell a keyless-but-known provider
-# (ollama -> UnsupportedError) from a typo (-> UnknownProviderError). Derived from the one
-# Provider definition so the two never drift.
-_ALL_PROVIDERS: frozenset[str] = frozenset(get_args(Provider))
+# Every provider make_client knows, so the read path can reject a typo while still resolving a
+# known-but-keyless provider (ollama). Derived from the one Provider definition so the two
+# never drift; the ordered tuple gives messages a stable order (frozenset iteration has none).
+_ALL_PROVIDERS_ORDER: tuple[str, ...] = get_args(Provider)
+_ALL_PROVIDERS: frozenset[str] = frozenset(_ALL_PROVIDERS_ORDER)
 
 
 def get_api_key(provider: str, *, override: str | None = None) -> str | None:
     """Resolve ``provider``'s API key across ``override`` > env > stored file, or ``None``
     when it is unset everywhere (so a client can phrase its own "no key" error) or the
     provider needs none (ollama). ``override`` is ``make_client``'s ``api_key=``, kept as the
-    top tier so a caller managing its own secrets never reads the store. A ``provider`` with
-    no key name (ollama, or an unknown handle) simply resolves to ``override``.
+    top tier so a caller managing its own secrets never reads the store.
 
     Raises:
-        CredentialStoreError: the store file is present but unreadable or malformed
-            (propagated from the storage backend).
+        UnknownProviderError: ``provider`` is not one thinchat supports (a typo resolves to
+            an error, not a misleading "no key").
+        CredentialStoreError: the store could not be read -- present but unreadable or
+            malformed, or the storage backend failed (propagated from xdg-kit).
     """
+    if provider not in _ALL_PROVIDERS:
+        raise UnknownProviderError(
+            f"unknown provider {provider!r}; choose one of {', '.join(_ALL_PROVIDERS_ORDER)}")
     name = ENV_BY_PROVIDER.get(provider)
-    if name is None:
+    if name is None:                      # ollama: known, but needs no key
         return override
     try:
         return get_secret(APP, name, override=override)
@@ -72,7 +84,7 @@ def set_api_key(provider: str, *, value: str) -> None:
         UnsupportedError: ``provider`` needs no API key (ollama), so none can be stored.
         CredentialStoreError: the store could not be written.
     """
-    name = _stored_name(provider)
+    name = stored_key_name(provider)
     try:
         set_secret(APP, name, value=value)
     except XdgKitError as err:
@@ -88,7 +100,7 @@ def unset_api_key(provider: str) -> None:
         UnsupportedError: ``provider`` needs no API key (ollama).
         CredentialStoreError: the store could not be written.
     """
-    name = _stored_name(provider)
+    name = stored_key_name(provider)
     try:
         unset_secret(APP, name)
     except XdgKitError as err:
@@ -111,11 +123,17 @@ def stored_providers() -> list[str]:
     return [provider for provider, name in ENV_BY_PROVIDER.items() if name in stored]
 
 
-def _stored_name(provider: str) -> str:
-    """The name a key for ``provider`` is filed under, or raise if ``provider`` takes no
-    stored key -- the shared validation for the write paths (``set``/``unset``). ollama is
-    known but keyless (``UnsupportedError``); anything off the roster is a typo
-    (``UnknownProviderError``)."""
+def stored_key_name(provider: str) -> str:
+    """The name a key for ``provider`` is filed under in the store and the environment, or
+    raise if ``provider`` takes no stored key. Shared by the write paths (``set``/``unset``)
+    and by a caller that wants to validate a provider *before* prompting for a secret (the
+    CLI ``set``), so a typo costs no wasted entry. ollama is known but keyless
+    (``UnsupportedError``); anything off the roster is a typo (``UnknownProviderError``).
+
+    Raises:
+        UnknownProviderError: ``provider`` is not one thinchat supports.
+        UnsupportedError: ``provider`` is known but needs no API key (ollama).
+    """
     name = ENV_BY_PROVIDER.get(provider)
     if name is not None:
         return name

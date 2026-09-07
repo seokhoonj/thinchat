@@ -13,7 +13,7 @@ _PROVIDER_ENV_VARS = ("OPENAI_API_KEY", "GEMINI_API_KEY", "CLAUDE_API_KEY")
 
 
 @pytest.fixture(autouse=True)
-def isolate_credential_store(tmp_path, monkeypatch):
+def isolate_api_key_sources(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     for env_var in _PROVIDER_ENV_VARS:
         monkeypatch.delenv(env_var, raising=False)

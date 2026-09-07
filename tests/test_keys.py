@@ -4,7 +4,7 @@ import json
 import os
 
 import pytest
-from xdg_kit import config_dir
+from xdg_kit import XdgKitError, config_dir
 
 from tests.fakes import install_openai
 from thinchat import make_client
@@ -21,6 +21,12 @@ def _store_path():
     return config_dir("thinchat") / "credentials.json"
 
 
+def _write_store(contents):
+    path = _store_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(contents)
+
+
 def test_reads_key_from_environment(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     assert get_api_key("openai") == "sk-test"
@@ -31,7 +37,12 @@ def test_missing_key_is_none():
 
 
 def test_ollama_has_no_key_name():
-    assert get_api_key("ollama") is None   # not in ENV_BY_PROVIDER -- a local server needs none
+    assert get_api_key("ollama") is None   # known, but a local server needs no key
+
+
+def test_get_rejects_an_unknown_provider():
+    with pytest.raises(UnknownProviderError):
+        get_api_key("bogus")   # a typo is an error, not a misleading "no key"
 
 
 def test_an_explicit_key_overrides_the_environment(monkeypatch):
@@ -45,6 +56,13 @@ def test_an_explicit_key_overrides_the_environment(monkeypatch):
 def test_stores_a_key_then_reads_it_back():
     set_api_key("claude", value="sk-stored")
     assert get_api_key("claude") == "sk-stored"
+
+
+def test_storing_over_an_existing_key_overwrites():
+    set_api_key("openai", value="first")
+    set_api_key("openai", value="second")
+    assert get_api_key("openai") == "second"
+    assert stored_providers() == ["openai"]   # listed once, not twice
 
 
 def test_environment_beats_the_stored_key(monkeypatch):
@@ -89,6 +107,11 @@ def test_set_rejects_ollama_which_needs_no_key():
         set_api_key("ollama", value="sk-x")
 
 
+def test_unset_rejects_ollama_which_needs_no_key():
+    with pytest.raises(UnsupportedError):
+        unset_api_key("ollama")
+
+
 @pytest.mark.skipif(os.name != "posix", reason="0600 file mode is a POSIX concept")
 def test_stored_key_file_is_owner_readable_only():
     set_api_key("claude", value="sk-secret")
@@ -96,9 +119,35 @@ def test_stored_key_file_is_owner_readable_only():
     assert mode == 0o600
 
 
-def test_a_malformed_store_raises_credential_store_error():
-    path = _store_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(["not", "an", "object"]))   # a JSON array, not the expected object
+@pytest.mark.parametrize(
+    "operation",
+    [
+        lambda: get_api_key("claude"),
+        lambda: set_api_key("claude", value="sk-x"),
+        lambda: unset_api_key("claude"),
+        lambda: stored_providers(),
+    ],
+    ids=["get", "set", "unset", "stored_providers"],
+)
+def test_a_malformed_store_raises_credential_store_error(operation):
+    _write_store(json.dumps(["not", "an", "object"]))   # a JSON array, not the expected object
     with pytest.raises(CredentialStoreError):
-        get_api_key("claude")
+        operation()
+
+
+def test_a_store_write_failure_never_leaks_the_key_value(monkeypatch):
+    """Ch 12: a write-path failure builds an exception (and a cause chain) while the key value
+    is in hand; neither may carry it."""
+    secret = "sk-DO-NOT-LEAK-ON-ERROR-13579"
+
+    def fail_write(*args, **kwargs):
+        raise XdgKitError("backend write failed")
+
+    monkeypatch.setattr("thinchat.keys.set_secret", fail_write)
+    with pytest.raises(CredentialStoreError) as exc_info:
+        set_api_key("claude", value=secret)
+
+    error: BaseException | None = exc_info.value
+    while error is not None:
+        assert secret not in str(error)
+        error = error.__cause__

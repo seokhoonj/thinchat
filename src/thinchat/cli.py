@@ -59,6 +59,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _cmd_set(args: argparse.Namespace) -> int:
+    keys.stored_key_name(args.provider)   # reject an unknown/keyless provider before prompting
     try:
         entered = getpass.getpass(f"{args.provider} API key: ")
     except EOFError:
@@ -97,9 +98,10 @@ def _cmd_unset(args: argparse.Namespace) -> int:
 
 def _mask(value: str) -> str:
     """Render ``value`` with only its first and last few characters visible, the middle
-    replaced by a marker -- enough to recognise the key, never enough to recover it. A key too
-    short to reveal an edge safely is shown fully masked."""
-    if len(value) <= 2 * _MASK_EDGE:
+    replaced by a marker -- enough to recognise the key, never enough to recover it. Edges are
+    revealed only when the hidden middle is itself substantial (more than ``_MASK_EDGE``
+    characters); a shorter value is shown fully masked so it cannot be nearly reconstructed."""
+    if len(value) <= 3 * _MASK_EDGE:
         return "*" * len(value)
     return f"{value[:_MASK_EDGE]}...{value[-_MASK_EDGE:]}"
 

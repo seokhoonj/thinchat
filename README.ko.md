@@ -103,8 +103,8 @@ thinchat unset claude    # 저장된 키 삭제
 ```
 
 같은 동작을 프로그램에서도 쓸 수 있습니다 — `thinchat.set_api_key("claude", value=...)`,
-`thinchat.stored_providers()`, `thinchat.unset_api_key(...)` — 그래서 상위 애플리케이션이
-사용자를 위해 저장소를 대신 채워줄 수 있습니다. 환경변수는 항상 저장 파일을 이기므로, 컨테이너나
+`thinchat.get_api_key("claude")`, `thinchat.stored_providers()`, `thinchat.unset_api_key(...)`
+— 그래서 상위 애플리케이션이 사용자를 위해 저장소를 대신 채우거나 읽어줄 수 있습니다. 환경변수는 항상 저장 파일을 이기므로, 컨테이너나
 CI에서는 `<PROVIDER>_API_KEY`만 설정하면 파일 없이 저장소를 덮어씁니다.
 
 ## 4. 지원 기능(Capabilities)

@@ -55,6 +55,15 @@ def test_get_masks_the_key_and_never_prints_it_whole(capsys):
     assert "sk-1" in shown and "EFGH" in shown   # only the edges are revealed
 
 
+def test_get_masks_a_key_resolved_from_the_environment(monkeypatch, capsys):
+    secret = "sk-env-1234567890ABCDEFGH"
+    monkeypatch.setenv("CLAUDE_API_KEY", secret)   # resolved from env, not the file store
+    assert main(["get", "claude"]) == 0
+    shown = capsys.readouterr().out
+    assert secret not in shown
+    assert "sk-e" in shown   # masked, edges only
+
+
 def test_get_on_a_missing_key_reports_no_key(capsys):
     assert main(["get", "gemini"]) == 0
     assert "no key for gemini" in capsys.readouterr().out
@@ -68,16 +77,17 @@ def test_list_shows_which_providers_are_set(capsys):
     assert "not set" in listed   # openai / gemini are unset
 
 
-def test_unset_removes_the_stored_key(monkeypatch, capsys):
+def test_unset_removes_the_stored_key(capsys):
     set_api_key("openai", value="sk-o")
     assert main(["unset", "openai"]) == 0
     assert get_api_key("openai") is None
     assert "removed the stored key for openai" in capsys.readouterr().out
 
 
-def test_an_unknown_provider_reports_an_error_and_exits_one(monkeypatch, capsys):
-    _answer_prompt_with(monkeypatch, "sk-x")
-    assert main(["set", "bogus"]) == 1
+@pytest.mark.parametrize("command", ["set", "get", "unset"])
+def test_an_unknown_provider_reports_an_error_and_exits_one(command, monkeypatch, capsys):
+    _answer_prompt_with(monkeypatch, "sk-x")   # set validates before prompting; patch is a safety net
+    assert main([command, "bogus"]) == 1
     assert "thinchat:" in capsys.readouterr().err
 
 
@@ -88,11 +98,11 @@ def test_version_prints_and_exits_zero(capsys):
     assert __version__ in capsys.readouterr().out
 
 
-def test_a_stored_key_never_appears_in_any_cli_output(capsys):
-    """PACKAGE_BOUNDARY Ch 12: the key value must not reach stdout or stderr on any path."""
+def test_a_stored_key_never_appears_in_any_cli_output(monkeypatch, capsys):
+    """The key value must not reach stdout or stderr on any CLI path, including `set`."""
     secret = "sk-DO-NOT-LEAK-THIS-0987654321"
-    set_api_key("gemini", value=secret)
-    for argv in (["get", "gemini"], ["list"], ["unset", "gemini"]):
+    _answer_prompt_with(monkeypatch, secret)
+    for argv in (["set", "gemini"], ["get", "gemini"], ["list"], ["unset", "gemini"]):
         main(argv)
         captured = capsys.readouterr()
         assert secret not in captured.out

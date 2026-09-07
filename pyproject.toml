@@ -73,9 +73,9 @@ python_version = "3.11"
 files = ["src", "tests"]
 strict = true
 
-# The provider SDKs are optional extras, imported lazily and absent from a minimal
-# environment, so mypy cannot see them -- and must not need to: the package type-checks
-# without them.
+# openai and anthropic are base dependencies, but a type-check environment may run without
+# them installed (each is imported lazily, only when its client is built), so mypy is told to
+# ignore their missing imports -- the package type-checks whether or not they are present.
 [[tool.mypy.overrides]]
 module = ["openai", "openai.*", "anthropic", "anthropic.*"]
 ignore_missing_imports = true
