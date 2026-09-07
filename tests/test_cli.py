@@ -91,6 +91,24 @@ def test_an_unknown_provider_reports_an_error_and_exits_one(command, monkeypatch
     assert "thinchat:" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("provider", ["bogus", "ollama"])   # a typo, and a known-but-keyless one
+def test_set_validates_the_provider_before_prompting(provider, monkeypatch):
+    def must_not_prompt(prompt=""):
+        raise AssertionError("prompted for a key before validating the provider")
+    monkeypatch.setattr(getpass, "getpass", must_not_prompt)
+    assert main(["set", provider]) == 1   # rejected without ever asking for a key
+
+
+@pytest.mark.parametrize(
+    "length, expected",
+    [(12, "*" * 12), (13, "kkkk...kkkk")],   # edges appear only once the middle stays hidden
+)
+def test_get_reveals_edges_only_above_the_mask_threshold(length, expected, capsys):
+    set_api_key("claude", value="k" * length)
+    assert main(["get", "claude"]) == 0
+    assert capsys.readouterr().out.strip() == expected
+
+
 def test_version_prints_and_exits_zero(capsys):
     with pytest.raises(SystemExit) as exit_info:
         main(["--version"])

@@ -46,11 +46,23 @@ def test_get_rejects_an_unknown_provider():
 
 
 def test_an_explicit_key_overrides_the_environment(monkeypatch):
-    seen: dict[str, object] = {}
+    client_arguments: dict[str, object] = {}
     monkeypatch.setenv("OPENAI_API_KEY", "from-env")
-    install_openai(monkeypatch, client_capture=seen)
+    install_openai(monkeypatch, client_capture=client_arguments)
     make_client("openai", api_key="explicit")   # explicit wins over the set env var
-    assert seen["api_key"] == "explicit"
+    assert client_arguments["api_key"] == "explicit"
+
+
+def test_explicit_api_key_does_not_read_the_store(monkeypatch):
+    # The pure-library invariant: api_key= short-circuits before any file read. A malformed
+    # store would raise CredentialStoreError if it were read, so a clean construction with the
+    # explicit key proves the store was never touched.
+    client_arguments: dict[str, object] = {}
+    _write_store("{ this is not valid json")
+    monkeypatch.setenv("OPENAI_API_KEY", "hostile-env")
+    install_openai(monkeypatch, client_capture=client_arguments)
+    make_client("openai", api_key="explicit")
+    assert client_arguments["api_key"] == "explicit"
 
 
 def test_stores_a_key_then_reads_it_back():
@@ -112,6 +124,12 @@ def test_unset_rejects_ollama_which_needs_no_key():
         unset_api_key("ollama")
 
 
+def test_set_rejects_a_blank_value():
+    with pytest.raises(ValueError):
+        set_api_key("claude", value="   ")
+    assert stored_providers() == []   # a blank key that would resolve as absent is not stored
+
+
 @pytest.mark.skipif(os.name != "posix", reason="0600 file mode is a POSIX concept")
 def test_stored_key_file_is_owner_readable_only():
     set_api_key("claude", value="sk-secret")
@@ -135,10 +153,31 @@ def test_a_malformed_store_raises_credential_store_error(operation):
         operation()
 
 
-def test_a_store_write_failure_never_leaks_the_key_value(monkeypatch):
-    """Ch 12: a write-path failure builds an exception (and a cause chain) while the key value
-    is in hand; neither may carry it."""
-    secret = "sk-DO-NOT-LEAK-ON-ERROR-13579"
+def test_set_on_a_malformed_store_preserves_the_file():
+    original = json.dumps(["not", "an", "object"])
+    _write_store(original)
+    with pytest.raises(CredentialStoreError):
+        set_api_key("claude", value="sk-x")
+    assert _store_path().read_text() == original   # a failed write must not clobber the file
+
+
+def test_a_malformed_store_error_never_echoes_the_file_contents():
+    # A store-read failure must not surface the file's bytes -- which may hold a real key -- in
+    # the error or anywhere down its cause chain.
+    secret = "sk-SENTINEL-IN-FILE-0000"
+    _write_store('{"CLAUDE_API_KEY": "' + secret + '", MALFORMED')
+    with pytest.raises(CredentialStoreError) as exc_info:
+        get_api_key("claude")
+    error: BaseException | None = exc_info.value
+    while error is not None:
+        assert secret not in str(error)
+        error = error.__cause__
+
+
+def test_a_store_write_failure_never_adds_the_key_to_the_error(monkeypatch):
+    # thinchat wraps a write failure with the provider name only, never the value it was
+    # handed; the xdg-kit cause is secret-safe by contract, so the chain is not re-scrubbed.
+    secret = "sk-VALUE-IN-HAND-1111"
 
     def fail_write(*args, **kwargs):
         raise XdgKitError("backend write failed")
@@ -146,8 +185,4 @@ def test_a_store_write_failure_never_leaks_the_key_value(monkeypatch):
     monkeypatch.setattr("thinchat.keys.set_secret", fail_write)
     with pytest.raises(CredentialStoreError) as exc_info:
         set_api_key("claude", value=secret)
-
-    error: BaseException | None = exc_info.value
-    while error is not None:
-        assert secret not in str(error)
-        error = error.__cause__
+    assert secret not in str(exc_info.value)

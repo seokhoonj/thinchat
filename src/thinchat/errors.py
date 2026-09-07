@@ -4,9 +4,9 @@ Every error thinchat raises on purpose derives from ``ThinchatError``, so a call
 handle this package's failures with one ``except`` without catching unrelated bugs. The
 tree separates the ways a call can fail: the client could not be built
 (``ProviderUnavailableError``), the name is not one we know (``UnknownProviderError``), the
-client does not offer the requested capability (``UnsupportedError``), the stored-key store
-could not be read or written (``CredentialStoreError``), or the API call itself failed
-(``LLMError``). One refinement of that last case is broken out: a rate limit
+operation is not available for the provider (``UnsupportedError`` -- a missing capability, or
+a key for a keyless provider), the stored-key store could not be read or written
+(``CredentialStoreError``), or the API call itself failed (``LLMError``). One refinement of that last case is broken out: a rate limit
 (HTTP 429) that outlives the SDK's own retries surfaces as ``RateLimitError``, an
 ``LLMError`` subclass carrying the requested retry delay -- so ``except LLMError`` still
 catches it, while a caller that wants to wait and retry can catch it by its own type.
@@ -41,9 +41,11 @@ class ProviderUnavailableError(ThinchatError):
 
 
 class UnsupportedError(ThinchatError):
-    """The client does not offer the requested capability -- asking Claude for embeddings,
-    which Anthropic has no first-party API for. Permanent for that client, so ``supports``
-    lets a caller check before calling."""
+    """A requested operation is not available for this provider. Two cases: a capability the
+    client lacks -- asking Claude for embeddings, which Anthropic has no first-party API for,
+    so ``supports`` lets a caller check before calling -- or storing/removing a key for a
+    provider that needs none (ollama). Permanent either way, so the caller changes the request
+    rather than retrying."""
 
 
 class CredentialStoreError(ThinchatError):

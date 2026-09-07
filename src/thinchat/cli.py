@@ -59,7 +59,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _cmd_set(args: argparse.Namespace) -> int:
-    keys.stored_key_name(args.provider)   # reject an unknown/keyless provider before prompting
+    keys._stored_name(args.provider)   # reject an unknown/keyless provider before prompting
     try:
         entered = getpass.getpass(f"{args.provider} API key: ")
     except EOFError:

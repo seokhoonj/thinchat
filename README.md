@@ -127,7 +127,8 @@ the package's failures:
 
 - `UnknownProviderError` — the name isn't one of the four providers.
 - `ProviderUnavailableError` — the provider's SDK isn't installed, or no API key is set.
-- `UnsupportedError` — the provider lacks the capability (e.g. embeddings on Claude).
+- `UnsupportedError` — the operation isn't available for the provider: a missing capability
+  (e.g. embeddings on Claude), or storing a key for keyless ollama.
 - `CredentialStoreError` — the stored-key file (`~/.config/thinchat/credentials.json`) is
   present but unreadable or malformed, or could not be written.
 - `LLMError` — the API call failed, or the reply was empty or malformed.

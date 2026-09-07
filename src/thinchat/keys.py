@@ -23,17 +23,10 @@ from xdg_kit import XdgKitError, get_secret, secret_names, set_secret, unset_sec
 from thinchat.client import Provider
 from thinchat.errors import CredentialStoreError, UnknownProviderError, UnsupportedError
 
-__all__ = [
-    "ENV_BY_PROVIDER",
-    "get_api_key",
-    "set_api_key",
-    "unset_api_key",
-    "stored_providers",
-    "stored_key_name",
-]
+__all__ = ["ENV_BY_PROVIDER", "get_api_key", "set_api_key", "unset_api_key", "stored_providers"]
 
 # The xdg-kit app whose store thinchat's keys live in: ~/.config/thinchat/credentials.json.
-APP = "thinchat"
+_STORE_APP = "thinchat"
 
 # The environment variable each provider's key is read from, and the name it is stored under.
 # ollama is absent on purpose: a local server needs no key, so its client passes a dummy the
@@ -70,7 +63,7 @@ def get_api_key(provider: str, *, override: str | None = None) -> str | None:
     if name is None:                      # ollama: known, but needs no key
         return override
     try:
-        return get_secret(APP, name, override=override)
+        return get_secret(_STORE_APP, name, override=override)
     except XdgKitError as err:
         raise CredentialStoreError(f"could not read the stored key for {provider}") from err
 
@@ -82,11 +75,15 @@ def set_api_key(provider: str, *, value: str) -> None:
     Raises:
         UnknownProviderError: ``provider`` is not one thinchat supports.
         UnsupportedError: ``provider`` needs no API key (ollama), so none can be stored.
+        ValueError: ``value`` is empty or whitespace -- a blank key would store as present but
+            resolve as absent, an inconsistency rejected at the boundary.
         CredentialStoreError: the store could not be written.
     """
-    name = stored_key_name(provider)
+    name = _stored_name(provider)
+    if not value.strip():
+        raise ValueError(f"the API key for {provider} is empty")
     try:
-        set_secret(APP, name, value=value)
+        set_secret(_STORE_APP, name, value=value)
     except XdgKitError as err:
         raise CredentialStoreError(f"could not store the key for {provider}") from err
 
@@ -100,9 +97,9 @@ def unset_api_key(provider: str) -> None:
         UnsupportedError: ``provider`` needs no API key (ollama).
         CredentialStoreError: the store could not be written.
     """
-    name = stored_key_name(provider)
+    name = _stored_name(provider)
     try:
-        unset_secret(APP, name)
+        unset_secret(_STORE_APP, name)
     except XdgKitError as err:
         raise CredentialStoreError(f"could not remove the stored key for {provider}") from err
 
@@ -114,20 +111,21 @@ def stored_providers() -> list[str]:
     what has been saved.
 
     Raises:
-        CredentialStoreError: the store is present but malformed.
+        CredentialStoreError: the store could not be read -- present but unreadable or
+            malformed, or the storage backend failed (propagated from xdg-kit).
     """
     try:
-        stored = set(secret_names(APP))
+        stored = set(secret_names(_STORE_APP))
     except XdgKitError as err:
         raise CredentialStoreError("could not read the credential store") from err
     return [provider for provider, name in ENV_BY_PROVIDER.items() if name in stored]
 
 
-def stored_key_name(provider: str) -> str:
+def _stored_name(provider: str) -> str:
     """The name a key for ``provider`` is filed under in the store and the environment, or
     raise if ``provider`` takes no stored key. Shared by the write paths (``set``/``unset``)
-    and by a caller that wants to validate a provider *before* prompting for a secret (the
-    CLI ``set``), so a typo costs no wasted entry. ollama is known but keyless
+    and by the CLI's ``set``, which calls it to reject a bad provider *before* prompting for a
+    secret, so a typo costs no wasted entry. ollama is known but keyless
     (``UnsupportedError``); anything off the roster is a typo (``UnknownProviderError``).
 
     Raises:

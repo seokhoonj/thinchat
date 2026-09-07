@@ -123,7 +123,8 @@ thinchat이 의도적으로 던지는 모든 에러는 `ThinchatError`에서 파
 
 - `UnknownProviderError` — 이름이 네 provider 중 하나가 아님.
 - `ProviderUnavailableError` — provider의 SDK가 설치되지 않았거나, API 키가 없음.
-- `UnsupportedError` — provider가 그 기능을 지원하지 않음(예: Claude의 embeddings).
+- `UnsupportedError` — provider에서 그 작업이 불가능함: 없는 기능(예: Claude의 embeddings),
+  또는 키가 필요 없는 ollama에 키를 저장하려는 경우.
 - `CredentialStoreError` — 저장소 파일(`~/.config/thinchat/credentials.json`)이 존재하지만
   읽을 수 없거나 형식이 잘못됨, 또는 쓰기에 실패함.
 - `LLMError` — API 호출이 실패했거나, 응답이 비었거나 형식이 잘못됨.
