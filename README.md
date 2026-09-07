@@ -131,7 +131,8 @@ the package's failures:
   (e.g. embeddings on Claude), or storing a key for keyless ollama.
 - `CredentialStoreError` — the stored-key file (`~/.config/thinchat/credentials.json`) is
   present but unreadable or malformed, or could not be written.
-- `LLMError` — the API call failed, or the reply was empty or malformed.
+- `LLMError` — the API call failed, or the reply was empty or malformed. The API key is
+  redacted from the message and its cause chain.
 - `RateLimitError` — a 429 rate limit after the SDK's own retries. It is a subclass of
   `LLMError`, so existing handlers still catch it, and its `retry_after` is how many
   seconds to wait before trying again (from the server's Retry-After), or `None` when the

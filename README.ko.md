@@ -127,7 +127,8 @@ thinchat이 의도적으로 던지는 모든 에러는 `ThinchatError`에서 파
   또는 키가 필요 없는 ollama에 키를 저장하려는 경우.
 - `CredentialStoreError` — 저장소 파일(`~/.config/thinchat/credentials.json`)이 존재하지만
   읽을 수 없거나 형식이 잘못됨, 또는 쓰기에 실패함.
-- `LLMError` — API 호출이 실패했거나, 응답이 비었거나 형식이 잘못됨.
+- `LLMError` — API 호출이 실패했거나, 응답이 비었거나 형식이 잘못됨. API 키는 메시지와 그
+  cause 체인에서 마스킹됩니다.
 - `RateLimitError` — SDK 자체 재시도 후에도 발생한 429 rate limit. `LLMError`의 subclass라
   기존 handler도 그대로 잡으며, `retry_after`에는 다시 시도하기까지 몇 초 기다리면 되는지(서버가
   준 Retry-After 값)가, 서버가 안 주면 `None`이 담깁니다.

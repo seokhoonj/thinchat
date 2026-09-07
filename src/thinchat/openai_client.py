@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import thinchat.keys as keys
-from thinchat.client import Capability, _BaseClient
+from thinchat.client import _OLLAMA_DUMMY_KEY, Capability, _BaseClient
 from thinchat.errors import LLMError, ProviderUnavailableError, UnknownProviderError
 
 __all__ = ["OpenAICompatibleClient"]
@@ -254,7 +254,7 @@ def _make_openai_client(
     return OpenAICompatibleClient(
         provider        = provider,
         base_url        = base_url,
-        api_key         = key or "ollama",   # Ollama ignores the key, but the SDK needs a non-empty one
+        api_key         = key or _OLLAMA_DUMMY_KEY,   # Ollama ignores the key, but the SDK needs a non-empty one
         model           = model or spec.chat_model,
         embed_model     = spec.embed_model,
         has_native_json = spec.has_native_json,
