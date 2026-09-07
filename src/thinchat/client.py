@@ -29,10 +29,6 @@ __all__ = ["Capability", "Client", "Provider"]
 # validates it; the internal surfaces carry ``Provider`` so a typo is a static error.
 Provider = Literal["claude", "openai", "gemini", "ollama"]
 
-# ollama runs locally and needs no key, but the OpenAI SDK requires a non-empty one, so its
-# client is built with this placeholder. It is not a secret, so error scrubbing skips it.
-_OLLAMA_DUMMY_KEY = "ollama"
-
 # What a client can do. A caller reads ``supports`` (or catches ``UnsupportedError``)
 # rather than assuming: Claude, for one, has completion and streaming but no embeddings.
 Capability = Literal["completion", "streaming", "structured_output", "embeddings"]
@@ -120,9 +116,9 @@ class _BaseClient(ABC):
     _aclient:     Any   # the vendor's async SDK client, or None until first async use
     _ratelimit_error: type[BaseException]   # the vendor SDK's 429 exception, mapped to RateLimitError
     _provider_label:  str                   # provider name shown in error messages
-    _api_key:         str                   # the key this client was built with (scrubbed from errors)
+    _secret_key:      str | None            # the key to scrub from errors; None when there is none (ollama)
 
-    def _sdk_failure(self, err: Exception, action: str) -> LLMError:
+    def _map_sdk_failure(self, err: Exception, action: str) -> LLMError:
         """Map a caught SDK error to a rate-limit error with any requested wait, or a plain
         API failure. ``action`` names the failed completion, embedding, or stream.
 
@@ -131,16 +127,16 @@ class _BaseClient(ABC):
         leak it into our message and the printed cause chain. xdg-kit's scrubber cleans the
         chain in place (args and a transport error's URL); ``scrub_secrets`` also cleans the
         rendered message we build, in case ``str(err)`` renders something other than ``args``.
-        ollama's placeholder is not a secret, so nothing is redacted for it."""
-        secrets = [self._api_key] if self._api_key and self._api_key != _OLLAMA_DUMMY_KEY else []
+        A provider with no secret (ollama) has ``_secret_key`` None, so nothing is redacted."""
+        secrets = [self._secret_key] if self._secret_key else []
         scrub_exception(err, secrets)
-        detail = scrub_secrets(str(err), secrets)
+        scrubbed_detail = scrub_secrets(str(err), secrets)
         if isinstance(err, self._ratelimit_error):
             return RateLimitError(
-                f"{self._provider_label} {action} rate-limited: {detail}",
+                f"{self._provider_label} {action} rate-limited: {scrubbed_detail}",
                 retry_after=_retry_after_seconds(err),
             )
-        return LLMError(f"{self._provider_label} {action} failed: {detail}")
+        return LLMError(f"{self._provider_label} {action} failed: {scrubbed_detail}")
 
     def supports(self, capability: Capability) -> bool:
         """Whether this client offers ``capability`` -- the check to make before calling

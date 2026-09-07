@@ -15,10 +15,14 @@ from dataclasses import dataclass
 from typing import Any
 
 import thinchat.keys as keys
-from thinchat.client import _OLLAMA_DUMMY_KEY, Capability, _BaseClient
+from thinchat.client import Capability, _BaseClient
 from thinchat.errors import LLMError, ProviderUnavailableError, UnknownProviderError
 
 __all__ = ["OpenAICompatibleClient"]
+
+# ollama runs locally and needs no key, but the OpenAI SDK requires a non-empty one, so its
+# client is built with this placeholder. It is not a secret, so it is never a key to scrub.
+_OLLAMA_DUMMY_KEY = "ollama"
 
 # An OpenAI-compatible client does everything; only Claude drops a capability.
 _CAPABILITIES: frozenset[Capability] = frozenset(
@@ -88,6 +92,7 @@ class OpenAICompatibleClient(_BaseClient):
         self._provider        = provider
         self._base_url        = base_url
         self._api_key         = api_key
+        self._secret_key      = api_key if api_key != _OLLAMA_DUMMY_KEY else None   # None -> nothing to scrub
         self._embed_model     = embed_model
         self._has_native_json = has_native_json
         self._max_tokens      = max_tokens    # None -> omit (OpenAI-compatible; the model decides)
@@ -145,7 +150,7 @@ class OpenAICompatibleClient(_BaseClient):
                     if delta:
                         yield delta
         except self._stream_errors as err:
-            raise self._sdk_failure(err, "stream") from err
+            raise self._map_sdk_failure(err, "stream") from err
 
     async def astream(self, prompt: str, *, system: str | None = None) -> AsyncIterator[str]:
         request = self._make_request(self._make_messages(prompt, system), json_mode=False)
@@ -158,7 +163,7 @@ class OpenAICompatibleClient(_BaseClient):
                     if delta:
                         yield delta
         except self._stream_errors as err:
-            raise self._sdk_failure(err, "stream") from err
+            raise self._map_sdk_failure(err, "stream") from err
 
     def embed(self, texts: Sequence[str], *, model: str | None = None) -> list[list[float]]:
         """Return one embedding vector per input text (empty input -> empty list, no call).
@@ -169,7 +174,7 @@ class OpenAICompatibleClient(_BaseClient):
         try:
             response = self._client.embeddings.create(model=model or self._embed_model, input=text_list)
         except self._sdk_error as err:
-            raise self._sdk_failure(err, "embedding") from err
+            raise self._map_sdk_failure(err, "embedding") from err
         return _extract_embedding_vectors(response)
 
     async def aembed(self, texts: Sequence[str], *, model: str | None = None) -> list[list[float]]:
@@ -180,7 +185,7 @@ class OpenAICompatibleClient(_BaseClient):
         try:
             response = await self._get_aclient().embeddings.create(model=model or self._embed_model, input=text_list)
         except self._sdk_error as err:
-            raise self._sdk_failure(err, "embedding") from err
+            raise self._map_sdk_failure(err, "embedding") from err
         return _extract_embedding_vectors(response)
 
     # Native JSON mode where the endpoint honours it, else the base's prompt-steered path.
@@ -194,14 +199,14 @@ class OpenAICompatibleClient(_BaseClient):
         try:
             response = self._client.chat.completions.create(**self._make_request(messages, json_mode=json_mode))
         except self._sdk_error as err:
-            raise self._sdk_failure(err, "completion") from err
+            raise self._map_sdk_failure(err, "completion") from err
         return _extract_chat_text(response)
 
     async def _achat(self, messages: list[dict[str, str]], *, json_mode: bool = False) -> str:
         try:
             response = await self._get_aclient().chat.completions.create(**self._make_request(messages, json_mode=json_mode))
         except self._sdk_error as err:
-            raise self._sdk_failure(err, "completion") from err
+            raise self._map_sdk_failure(err, "completion") from err
         return _extract_chat_text(response)
 
     def _make_request(self, messages: list[dict[str, str]], *, json_mode: bool) -> dict[str, object]:

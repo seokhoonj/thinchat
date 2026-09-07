@@ -54,6 +54,7 @@ class ClaudeClient(_BaseClient):
         self.model          = model
         self.capabilities   = _CAPABILITIES
         self._api_key       = api_key
+        self._secret_key    = api_key   # claude always has a real key; scrub it from errors
         self._max_tokens    = max_tokens
         self._temperature   = temperature   # None -> omit (sampling knobs go in the request)
         self._top_p         = top_p
@@ -88,14 +89,14 @@ class ClaudeClient(_BaseClient):
         try:
             response = self._client.messages.create(**self._make_request(prompt, system))
         except self._sdk_error as err:
-            raise self._sdk_failure(err, "completion") from err
+            raise self._map_sdk_failure(err, "completion") from err
         return _extract_message_text(response)
 
     async def acomplete(self, prompt: str, *, system: str | None = None) -> str:
         try:
             response = await self._get_aclient().messages.create(**self._make_request(prompt, system))
         except self._sdk_error as err:
-            raise self._sdk_failure(err, "completion") from err
+            raise self._map_sdk_failure(err, "completion") from err
         return _extract_message_text(response)
 
     def stream(self, prompt: str, *, system: str | None = None) -> Iterator[str]:
@@ -103,7 +104,7 @@ class ClaudeClient(_BaseClient):
             with self._client.messages.stream(**self._make_request(prompt, system)) as events:
                 yield from events.text_stream
         except self._stream_errors as err:
-            raise self._sdk_failure(err, "stream") from err
+            raise self._map_sdk_failure(err, "stream") from err
 
     async def astream(self, prompt: str, *, system: str | None = None) -> AsyncIterator[str]:
         try:
@@ -111,7 +112,7 @@ class ClaudeClient(_BaseClient):
                 async for chunk in events.text_stream:
                     yield chunk
         except self._stream_errors as err:
-            raise self._sdk_failure(err, "stream") from err
+            raise self._map_sdk_failure(err, "stream") from err
 
     def _make_request(self, prompt: str, system: str | None) -> dict[str, object]:
         request: dict[str, object] = {
