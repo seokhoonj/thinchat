@@ -10,6 +10,7 @@ from tests.fakes import install_openai
 from thinchat import make_client
 from thinchat.errors import CredentialStoreError, UnknownProviderError, UnsupportedError
 from thinchat.keys import (
+    _STORE_APP,
     get_api_key,
     set_api_key,
     stored_providers,
@@ -18,7 +19,7 @@ from thinchat.keys import (
 
 
 def _store_path():
-    return config_dir("thinchat") / "credentials.json"
+    return config_dir(_STORE_APP) / "credentials.json"   # the app name keys.py actually writes under
 
 
 def _write_store(contents):
