@@ -181,4 +181,4 @@ SDK 위의 단일 클래스를 공유하고(데이터만 다름), claude는 anth
 
 ## 8. 라이선스
 
-MIT
+[MIT](LICENSE)

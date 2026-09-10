@@ -186,4 +186,4 @@ to `LLMError`, using `RateLimitError` for a 429 after the SDK's retries.
 
 ## 8. License
 
-MIT
+[MIT](LICENSE)
