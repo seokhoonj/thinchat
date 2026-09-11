@@ -4,7 +4,7 @@ import json
 import os
 
 import pytest
-from xdg_kit import XdgKitError, config_dir
+from credbox import CredBoxError, config_dir
 
 from tests.fakes import install_openai
 from thinchat import make_client
@@ -177,13 +177,13 @@ def test_a_malformed_store_error_never_echoes_the_file_contents():
 
 def test_a_store_write_failure_never_adds_the_key_to_the_error(monkeypatch):
     # thinchat wraps a write failure with the provider name only, never the value it was
-    # handed; the xdg-kit cause is secret-safe by contract, so the chain is not re-scrubbed.
+    # handed; the credbox cause is secret-safe by contract, so the chain is not re-scrubbed.
     secret = "sk-VALUE-IN-HAND-1111"
 
     def fail_write(*args, **kwargs):
-        raise XdgKitError("backend write failed")
+        raise CredBoxError("backend write failed")
 
-    monkeypatch.setattr("thinchat.keys.set_secret", fail_write)
+    monkeypatch.setattr("thinchat.keys._store.set", fail_write)
     with pytest.raises(CredentialStoreError) as exc_info:
         set_api_key("claude", value=secret)
     assert secret not in str(exc_info.value)

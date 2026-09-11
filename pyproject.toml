@@ -31,13 +31,13 @@ requires-python = ">=3.11"
 # plain `pip install thinchat` is ready for every provider -- each SDK is still imported
 # lazily, only when its client is constructed. httpx is named directly (its transport
 # errors are caught on the streaming path), so it is a direct dependency, not a transitive.
-# xdg-kit backs the credential store: `thinchat set <provider>` and the env-over-file key
+# credbox backs the credential store: `thinchat set <provider>` and the env-over-file key
 # resolution write and read ~/.config/thinchat/credentials.json (0600) through it.
 dependencies    = [
     "openai>=1.30",
     "anthropic>=0.40",
     "httpx>=0.23",
-    "xdg-kit>=0.1",
+    "credbox>=0.1.0",
 ]
 
 [project.urls]

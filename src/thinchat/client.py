@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Iterator, Sequence
 from typing import Any, Literal, Protocol, Self, runtime_checkable
 
-from xdg_kit.scrub import scrub_exception, scrub_secrets
+from credbox import scrub_exception, scrub_secrets
 
 from thinchat.errors import LLMError, RateLimitError, UnsupportedError
 from thinchat.structured_output import make_json_instruction, parse_json
@@ -124,7 +124,7 @@ class _BaseClient(ABC):
 
         The API key is scrubbed first: our message interpolates ``str(err)`` and the caller
         re-raises ``from err``, so a provider whose error text carries the key would otherwise
-        leak it into our message and the printed cause chain. xdg-kit's scrubber cleans the
+        leak it into our message and the printed cause chain. credbox's scrubber cleans the
         chain in place (args and a transport error's URL); ``scrub_secrets`` also cleans the
         rendered message we build, in case ``str(err)`` renders something other than ``args``.
         A provider with no secret (ollama) has ``_secret_key`` None, so nothing is redacted."""
