@@ -1,8 +1,9 @@
 """Turn a model's text reply into a JSON object, and ask for one in the first place.
 
 Structured output has two halves. A client that supports it natively (OpenAI's
-``response_format``) constrains the reply to a schema at the API; one that does not is
-steered by appending the schema to the prompt. Either way the reply is text that must be
+``response_format``) constrains the reply to a JSON object at the API -- not to the schema
+itself -- while one that does not is steered by appending the schema to the prompt. Either
+way schema conformance is best-effort, and the reply is text that must be
 parsed, and models wrap JSON in prose or ```json fences often enough that a bare
 ``json.loads`` is too brittle -- so parsing strips the common wrappers first. Schema
 validation stops at "it is a JSON object": deep validation would need a schema library,
@@ -68,13 +69,19 @@ def parse_json(reply: str) -> dict[str, object]:
     return parsed
 
 
+def neutralize_controls(text: str) -> str:
+    """Replace C0 and C1 control characters (plus DEL) with spaces, so an untrusted string
+    echoed into an error message cannot smuggle ANSI escapes or carriage returns into a
+    terminal or log line. C1 (U+0080-U+009F) is included because U+009B is CSI -- the
+    single-character form of ``ESC[`` that terminals honour in UTF-8 mode -- so dropping it
+    would leave the very escape sequence this guards against."""
+    return "".join(" " if ch < " " or "\x7f" <= ch <= "\x9f" else ch for ch in text)
+
+
 def _snippet(text: str) -> str:
-    """The first 120 characters of ``text`` with C0 and C1 control characters (plus DEL)
-    neutralized to spaces, so a model reply echoed into an error message cannot smuggle ANSI
-    escapes or carriage returns into a terminal or log line. C1 (U+0080-U+009F) is included
-    because U+009B is CSI -- the single-character form of ``ESC[`` that terminals honour in
-    UTF-8 mode -- so dropping it would leave the very escape sequence this guards against."""
-    return "".join(" " if ch < " " or "\x7f" <= ch <= "\x9f" else ch for ch in text[:120])
+    """The first 120 characters of ``text`` with control characters neutralized (see
+    ``neutralize_controls``), for echoing an untrusted reply into an error message safely."""
+    return neutralize_controls(text[:120])
 
 
 def _unfence(text: str) -> str:

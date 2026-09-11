@@ -169,6 +169,18 @@ def test_mapping_a_failure_is_total_even_if_the_retry_after_header_raises(monkey
     _assert_secret_absent(_TEST_API_KEY, exc_info.value)
 
 
+def test_sdk_error_control_characters_are_neutralized_in_the_message(monkeypatch):
+    # The SDK error detail comes from the remote service; a hostile endpoint must not smuggle
+    # terminal escapes (C0 ESC or C1 CSI) or a carriage return into the LLMError message.
+    install_openai(monkeypatch, error=FakeOpenAIError("boom \x1b[31m x \x9b[0m y \r z"))
+    client = make_client("openai", api_key="k")
+    with pytest.raises(LLMError) as exc_info:
+        client.complete("hi")
+    message = str(exc_info.value)
+    assert "\x1b" not in message and "\x9b" not in message and "\r" not in message
+    assert "boom" in message   # the safe text survives
+
+
 def test_the_ollama_placeholder_key_is_not_scrubbed(monkeypatch):
     install_openai(monkeypatch, error=FakeOpenAIError("ollama server is not running on localhost"))
     client = make_client("ollama")   # no key -> the dummy placeholder, which is not a secret

@@ -66,7 +66,7 @@ _SPEC_BY_PROVIDER: dict[str, _ProviderSpec] = {
         has_native_json=True, needs_key=True, is_local=False),
     "gemini": _ProviderSpec(
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-        chat_model="gemini-flash-lite-latest", embed_model="text-embedding-004",
+        chat_model="gemini-flash-lite-latest", embed_model="gemini-embedding-001",
         has_native_json=True, needs_key=True, is_local=False),
     "ollama": _ProviderSpec(
         base_url=None, chat_model="llama3.1", embed_model="nomic-embed-text",
@@ -249,7 +249,12 @@ class OpenAICompatibleClient(_BaseClient):
     def _make_request(self, messages: list[dict[str, str]], *, json_mode: bool) -> dict[str, object]:
         request: dict[str, object] = {"model": self.model, "messages": messages}
         if self._max_tokens is not None:   # optional here, so send it only when set
-            request["max_tokens"] = self._max_tokens
+            # OpenAI deprecated ``max_tokens`` for its newer (o-series / GPT-5-class) models,
+            # which reject it; ``max_completion_tokens`` is accepted across current OpenAI chat
+            # models. Gemini's and Ollama's OpenAI-compat layers take the original ``max_tokens``,
+            # so the field name is keyed on the provider.
+            field = "max_completion_tokens" if self._provider == "openai" else "max_tokens"
+            request[field] = self._max_tokens
         if self._temperature is not None:
             request["temperature"] = self._temperature
         if self._top_p is not None:

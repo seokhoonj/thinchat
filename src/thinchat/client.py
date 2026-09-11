@@ -25,9 +25,18 @@ from thinchat.errors import (
     RateLimitError,
     UnsupportedError,
 )
-from thinchat.structured_output import make_json_instruction, parse_json
+from thinchat.structured_output import make_json_instruction, neutralize_controls, parse_json
 
 __all__ = ["Capability", "Client", "Provider"]
+
+# A Retry-After beyond this (seconds) is treated as no usable hint rather than trusted: a hostile
+# or buggy endpoint could otherwise return a huge finite value and make a caller that honours
+# retry_after sleep effectively forever. 24h is longer than any real transient limit.
+_MAX_RETRY_AFTER_SECONDS = 86_400.0
+
+# Cap the remote error detail interpolated into an LLMError: it comes from the service, so a
+# hostile endpoint should not be able to bloat the message with a huge body.
+_MAX_SDK_DETAIL_CHARS = 500
 
 
 def build_sdk_client(build: Callable[[], Any], *, provider: str) -> Any:
@@ -60,8 +69,9 @@ Capability = Literal["completion", "streaming", "structured_output", "embeddings
 
 
 def _retry_after_seconds(err: object) -> float | None:
-    """Return a numeric ``Retry-After`` response header as non-negative finite seconds,
-    or None when the response has no usable numeric value."""
+    """Return a numeric ``Retry-After`` response header as non-negative finite seconds within a
+    sane maximum (a day), or None when the response has no usable numeric value -- including a
+    negative, non-finite, or absurdly large value a hostile endpoint might return."""
     response = getattr(err, "response", None)
     headers  = getattr(response, "headers", None)
     if headers is None:
@@ -83,7 +93,7 @@ def _retry_after_seconds(err: object) -> float | None:
         seconds = float(raw)
     except (OverflowError, TypeError, ValueError):
         return None
-    return seconds if math.isfinite(seconds) and seconds >= 0 else None
+    return seconds if math.isfinite(seconds) and 0 <= seconds <= _MAX_RETRY_AFTER_SECONDS else None
 
 
 @runtime_checkable
@@ -165,7 +175,10 @@ class _BaseClient(ABC):
         dropped. A keyless provider (ollama) has ``_secret_key`` None, so nothing is redacted."""
         secrets = [self._secret_key] if self._secret_key is not None else []
         scrub_exception(err, secrets)
-        scrubbed_detail = scrub_secrets(str(err), secrets)
+        # The detail comes from the remote service: neutralize control characters (so a hostile
+        # endpoint cannot smuggle terminal escapes into a log line) and cap its length, after
+        # scrubbing any key from the rendered text.
+        scrubbed_detail = neutralize_controls(scrub_secrets(str(err), secrets)[:_MAX_SDK_DETAIL_CHARS])
         if isinstance(err, self._ratelimit_error):
             return RateLimitError(
                 f"{self._provider_label} {action} rate-limited: {scrubbed_detail}",
@@ -219,10 +232,10 @@ class _BaseClient(ABC):
     def parse(
         self, prompt: str, schema: dict[str, object], *, system: str | None = None
     ) -> dict[str, object]:
-        """Return the reply parsed into a JSON object. ``schema`` is supplied to guide (or
-        natively constrain) generation; it is not validated locally, so a caller that needs
-        strict conformance checks the returned object itself. Raises ``LLMError`` if the
-        reply is not a JSON object."""
+        """Return the reply parsed into a JSON object. ``schema`` guides generation (and, where
+        the provider supports it, constrains the reply to a JSON object at the API); the schema
+        itself is never enforced or validated locally, so a caller that needs strict conformance
+        checks the returned object itself. Raises ``LLMError`` if the reply is not a JSON object."""
         return parse_json(self._text_for_parse(prompt, _with_schema(system, schema)))
 
     async def aparse(

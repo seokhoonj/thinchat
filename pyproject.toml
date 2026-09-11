@@ -23,6 +23,7 @@ classifiers     = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
 ]
 # 3.11+ for the typing niceties this package uses (e.g. Self).
 requires-python = ">=3.11"

@@ -49,13 +49,23 @@ def test_openai_compatible_omits_max_tokens_by_default(monkeypatch, provider):
     install_openai(monkeypatch, capture=seen)
     make_client(provider, api_key="k").complete("hi")
     assert "max_tokens" not in seen
+    assert "max_completion_tokens" not in seen
 
 
-def test_make_client_forwards_max_tokens_to_openai(monkeypatch):
+@pytest.mark.parametrize(
+    ("provider", "field"),
+    [("openai", "max_completion_tokens"), ("gemini", "max_tokens"), ("ollama", "max_tokens")],
+)
+def test_max_tokens_uses_the_provider_correct_field(monkeypatch, provider, field):
+    # OpenAI's newer (o-series / GPT-5-class) models reject max_tokens and require
+    # max_completion_tokens; the gemini/ollama compat layers still take max_tokens. Pin the
+    # field name per provider so sending the wrong one (a 400 on current OpenAI models) is caught.
     seen: dict[str, object] = {}
     install_openai(monkeypatch, capture=seen)
-    make_client("openai", api_key="k", max_tokens=1000).complete("hi")
-    assert seen["max_tokens"] == 1000
+    make_client(provider, api_key="k", max_tokens=1000).complete("hi")
+    assert seen[field] == 1000
+    other = "max_tokens" if field == "max_completion_tokens" else "max_completion_tokens"
+    assert other not in seen
 
 
 def test_make_client_forwards_temperature_and_top_p_to_openai(monkeypatch):
@@ -125,7 +135,8 @@ def test_make_client_forwards_zero_max_tokens_to_openai_compatible(monkeypatch, 
     seen: dict[str, object] = {}
     install_openai(monkeypatch, capture=seen)
     make_client(provider, api_key="k", max_tokens=0).complete("hi")
-    assert seen["max_tokens"] == 0
+    field = "max_completion_tokens" if provider == "openai" else "max_tokens"
+    assert seen[field] == 0
 
 
 # --- streaming ----------------------------------------------------------------
@@ -283,6 +294,14 @@ async def test_aparse_uses_the_provider_json_strategy(monkeypatch, provider, use
 
 # --- embeddings ---------------------------------------------------------------
 
+def test_gemini_embed_uses_the_current_default_model(monkeypatch):
+    # text-embedding-004 was shut down 2026-01-14; the gemini embed default must be a live model.
+    seen: dict[str, object] = {}
+    install_openai(monkeypatch, capture=seen, vectors=([0.1],))
+    make_client("gemini", api_key="k").embed(["a"])
+    assert seen["model"] == "gemini-embedding-001"
+
+
 def test_embed_returns_one_vector_per_input(monkeypatch):
     # Exact ==: the vectors are passed straight through with no arithmetic, so no tolerance.
     client = _client(monkeypatch, vectors=([0.1, 0.2], [0.3, 0.4]))
@@ -330,6 +349,14 @@ def test_complete_maps_a_rate_limit_and_carries_retry_after(monkeypatch):
 def test_rate_limit_without_retry_after_carries_none(monkeypatch):
     with pytest.raises(RateLimitError) as excinfo:
         _client(monkeypatch, error=FakeOpenAIRateLimitError()).complete("hi")
+    assert excinfo.value.retry_after is None
+
+
+def test_an_absurd_retry_after_is_treated_as_no_hint(monkeypatch):
+    # A hostile endpoint returning a huge finite Retry-After must not make a caller that honours
+    # retry_after sleep effectively forever; beyond the 24h cap it degrades to no hint.
+    with pytest.raises(RateLimitError) as excinfo:
+        _client(monkeypatch, error=FakeOpenAIRateLimitError(retry_after=1e308)).complete("hi")
     assert excinfo.value.retry_after is None
 
 
