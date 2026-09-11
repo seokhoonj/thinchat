@@ -69,13 +69,25 @@ class _Chunk:
 
 
 class _EmbeddingItem:
-    def __init__(self, vector):
+    def __init__(self, vector, index):
         self.embedding = vector
+        self.index     = index   # the API tags each item with its input position
 
 
 class _Embeddings:
     def __init__(self, vectors):
-        self.data = [_EmbeddingItem(v) for v in vectors]
+        # Real endpoints tag items with their input index (0..n-1, in order); mirror that so
+        # the default response exercises the index-alignment path, not just positional order.
+        self.data = [_EmbeddingItem(vector, index) for index, vector in enumerate(vectors)]
+
+
+def fake_embeddings(items):
+    """Build an embeddings response from ``(vector, index)`` pairs, for tests that need a
+    response the default (0..n-1, in order) does not produce -- a scrambled, duplicated,
+    missing, or out-of-range index, or an index-less item (pass ``index=None``). A vector
+    aligns to its stated index, so a test can prove misalignment is caught."""
+    return types.SimpleNamespace(
+        data=[_EmbeddingItem(vector, index) for vector, index in items])
 
 
 class _SyncStream:

@@ -205,7 +205,7 @@ class OpenAICompatibleClient(_BaseClient):
         except self._sdk_error as err:
             failure = self._map_sdk_failure(err, "embedding")
         else:
-            return _extract_embedding_vectors(response)
+            return _extract_embedding_vectors(response, expected=len(text_list))
         raise failure
 
     async def aembed(self, texts: Sequence[str], *, model: str | None = None) -> list[list[float]]:
@@ -218,7 +218,7 @@ class OpenAICompatibleClient(_BaseClient):
         except self._sdk_error as err:
             failure = self._map_sdk_failure(err, "embedding")
         else:
-            return _extract_embedding_vectors(response)
+            return _extract_embedding_vectors(response, expected=len(text_list))
         raise failure
 
     # Native JSON mode where the endpoint honours it, else the base's prompt-steered path.
@@ -359,15 +359,38 @@ def _as_text_list(texts: Sequence[str]) -> list[str]:
     return list(texts)
 
 
-def _extract_embedding_vectors(response: object) -> list[list[float]]:
-    """The embedding vectors from an embeddings response, one per input, in order. An item
-    that carries no vector is an error, not a silently-empty result."""
+def _extract_embedding_vectors(response: object, *, expected: int) -> list[list[float]]:
+    """The embedding vectors from an embeddings response, one per input, in input order.
+    ``expected`` is how many inputs were sent; the response must carry exactly that many
+    vectors, one per input. An item with no vector, a wrong count, or an index set that is
+    not a one-to-one map onto the inputs is an error -- never a silently misaligned result.
+
+    The API tags each item with its input ``index``; when present, the indices must be a
+    permutation of ``range(expected)`` and the vectors are returned sorted by it, so a
+    response batched or reordered by the server still lines up with the inputs. A duplicate,
+    missing, or out-of-range index would silently pair a vector with the wrong input, so it
+    is rejected. An endpoint that omits ``index`` entirely falls back to positional order,
+    with the count check still guarding against a short or padded response."""
     data = getattr(response, "data", None)
     if not isinstance(data, list) or not data:
         raise LLMError("embedding returned no vectors")
-    # The API tags each item with its input `index`; sort by it so the vectors line up with
-    # the input order even if the response arrives (or is batched) out of order.
-    items = sorted(data, key=lambda item: getattr(item, "index", 0))
+    if len(data) != expected:
+        raise LLMError(
+            f"embedding response returned {len(data)} vectors for {expected} inputs")
+    indices = [getattr(item, "index", None) for item in data]
+    present = [index for index in indices if index is not None]
+    if present:
+        # The endpoint tagged items with indices: every item must carry one, and together they
+        # must be an exact permutation of range(expected). Requiring the full count first also
+        # rules out a mixed response (some items indexed, some not) whose order is ambiguous.
+        # sorted(present) == range(expected) then holds only for a true permutation, so a
+        # duplicate, missing, or out-of-range index is rejected here.
+        if len(present) != expected or sorted(present) != list(range(expected)):
+            raise LLMError("embedding response indices did not map one-to-one to the inputs")
+        by_index = {index: item for index, item in zip(indices, data, strict=True) if index is not None}
+        items = [by_index[position] for position in range(expected)]
+    else:
+        items = data   # no indices supplied: trust positional order (count already checked)
     vectors: list[list[float]] = []
     for item in items:
         embedding = getattr(item, "embedding", None)

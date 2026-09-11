@@ -7,7 +7,12 @@ from typing import Any
 import httpx
 import pytest
 
-from tests.fakes import FakeOpenAIError, FakeOpenAIRateLimitError, install_openai
+from tests.fakes import (
+    FakeOpenAIError,
+    FakeOpenAIRateLimitError,
+    fake_embeddings,
+    install_openai,
+)
 from thinchat import make_client
 from thinchat.errors import LLMError, RateLimitError
 
@@ -398,6 +403,43 @@ def test_embed_raises_when_data_is_empty(monkeypatch):
 def test_embed_raises_when_an_item_has_no_vector(monkeypatch):
     with pytest.raises(LLMError):
         _client(monkeypatch, vectors=(None,)).embed(["a"])
+
+
+def test_embed_raises_when_the_count_does_not_match_the_inputs(monkeypatch):
+    # Two inputs but one vector back: a short response would otherwise silently drop an input.
+    response = fake_embeddings([([1.0], 0)])
+    with pytest.raises(LLMError):
+        _client(monkeypatch, embedding=response).embed(["a", "b"])
+
+
+def test_embed_raises_on_a_duplicate_index(monkeypatch):
+    # Two items both claiming index 0: sorting alone would pair a vector with the wrong input,
+    # so a duplicate (which is not a permutation of range(2)) is rejected.
+    response = fake_embeddings([([1.0], 0), ([2.0], 0)])
+    with pytest.raises(LLMError):
+        _client(monkeypatch, embedding=response).embed(["a", "b"])
+
+
+def test_embed_raises_on_an_out_of_range_index(monkeypatch):
+    # An index outside 0..n-1 cannot map onto the inputs.
+    response = fake_embeddings([([1.0], 0), ([2.0], 5)])
+    with pytest.raises(LLMError):
+        _client(monkeypatch, embedding=response).embed(["a", "b"])
+
+
+def test_embed_raises_on_a_mixed_indexed_and_unindexed_response(monkeypatch):
+    # One item carries an index and the other does not: the order is ambiguous, so it is
+    # rejected rather than guessed.
+    response = fake_embeddings([([1.0], 0), ([2.0], None)])
+    with pytest.raises(LLMError):
+        _client(monkeypatch, embedding=response).embed(["a", "b"])
+
+
+def test_embed_falls_back_to_positional_order_when_indices_are_absent(monkeypatch):
+    # A compat endpoint that omits `index` entirely is trusted in positional order, with the
+    # count check still guarding against a short or padded response.
+    response = fake_embeddings([([1.0], None), ([2.0], None)])
+    assert _client(monkeypatch, embedding=response).embed(["a", "b"]) == [[1.0], [2.0]]
 
 
 # --- lifecycle ----------------------------------------------------------------
