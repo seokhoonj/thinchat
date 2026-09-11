@@ -1,7 +1,7 @@
 """Test isolation shared by the whole suite.
 
 Now that key resolution reads a file store (``~/.config/thinchat/credentials.json`` via
-xdg-kit), a test that calls ``get_api_key`` would otherwise see the developer's real store or
+credbox), a test that calls ``get_api_key`` would otherwise see the developer's real store or
 a stray environment key -- non-deterministic, and different in CI. The autouse fixture points
 the store at a fresh temp directory and clears the provider environment variables, so every
 test starts from an empty, private credential state.

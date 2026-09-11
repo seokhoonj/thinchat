@@ -5,7 +5,7 @@ touches a file, and the ``<PROVIDER>_API_KEY`` environment variable still works 
 configured. On top of that, thinchat can persist a key to its own store
 (``~/.config/thinchat/credentials.json``, mode 0600) so a user saves it once with
 ``thinchat set <provider>`` instead of exporting it every session. The storage, the
-permission hardening, and the env-over-file resolution are delegated to xdg-kit; this module
+permission hardening, and the env-over-file resolution are delegated to credbox; this module
 only maps thinchat's provider handles onto that store.
 
 The store is keyed by the same ``<PROVIDER>_API_KEY`` name the environment uses, so a key set
@@ -18,15 +18,20 @@ from __future__ import annotations
 
 from typing import get_args
 
-from xdg_kit import XdgKitError, get_secret, secret_names, set_secret, unset_secret
+from credbox import CredBoxError, Credentials, Secret
 
 from thinchat.client import Provider
 from thinchat.errors import CredentialStoreError, UnknownProviderError, UnsupportedError
 
 __all__ = ["ENV_BY_PROVIDER", "get_api_key", "set_api_key", "unset_api_key", "stored_providers"]
 
-# The xdg-kit app whose store thinchat's keys live in: ~/.config/thinchat/credentials.json.
+# The credbox app whose store thinchat's keys live in: ~/.config/thinchat/credentials.json.
 _STORE_APP = "thinchat"
+
+# One credbox facade bound to that app, reused across calls. It uses the default (file) backend,
+# so keys persist to credentials.json (mode 0600); the path is resolved per call, so a test that
+# repoints XDG_CONFIG_HOME still isolates the store.
+_store = Credentials(_STORE_APP)
 
 # The environment variable each provider's key is read from, and the name it is stored under.
 # ollama is absent on purpose: a local server needs no key, so its client passes a dummy the
@@ -44,27 +49,29 @@ _ALL_PROVIDERS_ORDER: tuple[str, ...] = get_args(Provider)
 _ALL_PROVIDERS: frozenset[str] = frozenset(_ALL_PROVIDERS_ORDER)
 
 
-def get_api_key(provider: str, *, override: str | None = None) -> str | None:
-    """Resolve ``provider``'s API key across ``override`` > env > stored file, or ``None``
-    when it is unset everywhere (so a client can phrase its own "no key" error) or the
-    provider needs none (ollama). ``override`` is ``make_client``'s ``api_key=``, kept as the
-    top tier so a caller managing its own secrets never reads the store.
+def get_api_key(provider: str, *, override: str | None = None) -> Secret | None:
+    """Resolve ``provider``'s API key across ``override`` > env > stored file as a ``Secret``
+    (which masks itself in ``repr``/``str`` and logs), or ``None`` when it is unset everywhere
+    (so a client can phrase its own "no key" error) or the provider needs none (ollama). Call
+    ``.reveal()`` only at the point the plaintext is required (e.g. the SDK constructor).
+    ``override`` is ``make_client``'s ``api_key=``, kept as the top tier so a caller managing
+    its own secrets never reads the store.
 
     Raises:
         UnknownProviderError: ``provider`` is not one thinchat supports (a typo resolves to
             an error, not a misleading "no key").
         CredentialStoreError: the store could not be read -- present but unreadable or
-            malformed, or the storage backend failed (propagated from xdg-kit).
+            malformed, or the storage backend failed (propagated from credbox).
     """
     if provider not in _ALL_PROVIDERS:
         raise UnknownProviderError(
             f"unknown provider {provider!r}; choose one of {', '.join(_ALL_PROVIDERS_ORDER)}")
     name = ENV_BY_PROVIDER.get(provider)
     if name is None:                      # ollama: known, but needs no key
-        return override
+        return Secret(override) if override is not None else None
     try:
-        return get_secret(_STORE_APP, name, override=override)
-    except XdgKitError as err:
+        return _store.secret(name, override=override)   # credbox returns a Secret | None
+    except CredBoxError as err:
         raise CredentialStoreError(f"could not read the stored key for {provider}") from err
 
 
@@ -83,8 +90,8 @@ def set_api_key(provider: str, *, value: str) -> None:
     if not value.strip():
         raise ValueError(f"the API key for {provider} is empty")
     try:
-        set_secret(_STORE_APP, name, value=value)
-    except XdgKitError as err:
+        _store.set(name, value=value)
+    except CredBoxError as err:
         raise CredentialStoreError(f"could not store the key for {provider}") from err
 
 
@@ -99,8 +106,8 @@ def unset_api_key(provider: str) -> None:
     """
     name = _stored_name(provider)
     try:
-        unset_secret(_STORE_APP, name)
-    except XdgKitError as err:
+        _store.unset(name)
+    except CredBoxError as err:
         raise CredentialStoreError(f"could not remove the stored key for {provider}") from err
 
 
@@ -112,11 +119,11 @@ def stored_providers() -> list[str]:
 
     Raises:
         CredentialStoreError: the store could not be read -- present but unreadable or
-            malformed, or the storage backend failed (propagated from xdg-kit).
+            malformed, or the storage backend failed (propagated from credbox).
     """
     try:
-        stored = set(secret_names(_STORE_APP))
-    except XdgKitError as err:
+        stored = set(_store.names())
+    except CredBoxError as err:
         raise CredentialStoreError("could not read the credential store") from err
     return [provider for provider, name in ENV_BY_PROVIDER.items() if name in stored]
 

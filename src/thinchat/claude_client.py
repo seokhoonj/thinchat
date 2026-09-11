@@ -12,6 +12,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
+from credbox import Secret
+
 import thinchat.keys as keys
 from thinchat.client import Capability, _BaseClient
 from thinchat.errors import LLMError, ProviderUnavailableError
@@ -37,9 +39,10 @@ class ClaudeClient(_BaseClient):
 
     _sdk_error:     type[Exception]
     _stream_errors: tuple[type[Exception], ...]
+    _secret_key:    Secret   # claude always has a real key (never None, unlike the base's union)
 
     def __init__(
-        self, *, api_key: str, model: str, max_tokens: int = _CLAUDE_DEFAULT_MAX_TOKENS,
+        self, *, api_key: Secret, model: str, max_tokens: int = _CLAUDE_DEFAULT_MAX_TOKENS,
         temperature: float | None = None, top_p: float | None = None,
         timeout: float | None = None, max_retries: int | None = None,
     ) -> None:
@@ -53,8 +56,7 @@ class ClaudeClient(_BaseClient):
             ) from err
         self.model          = model
         self.capabilities   = _CAPABILITIES
-        self._api_key       = api_key
-        self._secret_key    = api_key   # claude always has a real key; scrub it from errors
+        self._secret_key    = api_key   # a Secret; claude always has a real key, scrubbed from errors
         self._max_tokens    = max_tokens
         self._temperature   = temperature   # None -> omit (sampling knobs go in the request)
         self._top_p         = top_p
@@ -66,7 +68,8 @@ class ClaudeClient(_BaseClient):
         self._ratelimit_error = _AnthropicRateLimitError
         self._provider_label  = "claude"
         self._stream_errors   = (AnthropicError, httpx.HTTPError)
-        self._client          = Anthropic(api_key=api_key, **self._transport_kwargs())
+        # Reveal the Secret only here and in the async builder -- the two SDK-construction points.
+        self._client          = Anthropic(api_key=self._secret_key.reveal(), **self._transport_kwargs())
         self._aclient         = None   # built on first async use (see _make_aclient)
 
     def _transport_kwargs(self) -> dict[str, Any]:
@@ -83,7 +86,7 @@ class ClaudeClient(_BaseClient):
 
     def _make_aclient(self) -> Any:
         from anthropic import AsyncAnthropic  # the sync import above already proved it installed
-        return AsyncAnthropic(api_key=self._api_key, **self._transport_kwargs())
+        return AsyncAnthropic(api_key=self._secret_key.reveal(), **self._transport_kwargs())
 
     def complete(self, prompt: str, *, system: str | None = None) -> str:
         try:
@@ -142,7 +145,7 @@ def _make_claude_client(
             (or passed).
     """
     key = keys.get_api_key("claude", override=api_key)
-    if not key:
+    if key is None:
         raise ProviderUnavailableError(
             f"no API key for claude: pass api_key=, set {keys.ENV_BY_PROVIDER['claude']}, "
             f"or run 'thinchat set claude'"

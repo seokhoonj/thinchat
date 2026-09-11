@@ -14,6 +14,8 @@ from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from credbox import Secret
+
 import thinchat.keys as keys
 from thinchat.client import Capability, _BaseClient
 from thinchat.errors import LLMError, ProviderUnavailableError, UnknownProviderError
@@ -74,7 +76,7 @@ class OpenAICompatibleClient(_BaseClient):
     _stream_errors: tuple[type[Exception], ...]
 
     def __init__(
-        self, *, provider: str, base_url: str | None, api_key: str, model: str,
+        self, *, provider: str, base_url: str | None, api_key: Secret | None, model: str,
         embed_model: str, has_native_json: bool, max_tokens: int | None = None,
         temperature: float | None = None, top_p: float | None = None,
         timeout: float | None = None, max_retries: int | None = None,
@@ -91,8 +93,7 @@ class OpenAICompatibleClient(_BaseClient):
         self.capabilities     = _CAPABILITIES
         self._provider        = provider
         self._base_url        = base_url
-        self._api_key         = api_key
-        self._secret_key      = api_key if api_key != _OLLAMA_DUMMY_KEY else None   # None -> nothing to scrub
+        self._secret_key      = api_key   # a Secret, or None for a keyless provider (ollama)
         self._embed_model     = embed_model
         self._has_native_json = has_native_json
         self._max_tokens      = max_tokens    # None -> omit (OpenAI-compatible; the model decides)
@@ -107,8 +108,14 @@ class OpenAICompatibleClient(_BaseClient):
         # The streaming iteration path does NOT wrap transport failures in OpenAIError, so
         # a mid-stream disconnect raises a raw httpx error; catch that base there too.
         self._stream_errors   = (OpenAIError, httpx.HTTPError)
-        self._client          = OpenAI(base_url=base_url, api_key=api_key, **self._transport_kwargs())
+        self._client          = OpenAI(base_url=base_url, api_key=self._sdk_key(), **self._transport_kwargs())
         self._aclient         = None   # built on first async use (see _make_aclient)
+
+    def _sdk_key(self) -> str:
+        """The plaintext key the SDK constructor needs -- revealed HERE and nowhere else, so the
+        secret lives as a ``Secret`` everywhere else. ollama holds no key (``_secret_key`` None);
+        the SDK still requires a non-empty string, so it gets the non-secret placeholder."""
+        return self._secret_key.reveal() if self._secret_key is not None else _OLLAMA_DUMMY_KEY
 
     def _transport_kwargs(self) -> dict[str, Any]:
         # timeout / max_retries are HTTP-client config for the SDK constructor; send each
@@ -124,7 +131,7 @@ class OpenAICompatibleClient(_BaseClient):
 
     def _make_aclient(self) -> Any:
         from openai import AsyncOpenAI  # the sync import above already proved it installed
-        return AsyncOpenAI(base_url=self._base_url, api_key=self._api_key, **self._transport_kwargs())
+        return AsyncOpenAI(base_url=self._base_url, api_key=self._sdk_key(), **self._transport_kwargs())
 
     def __repr__(self) -> str:   # one class serves three providers; show which
         return f"OpenAICompatibleClient(provider={self._provider!r}, model={self.model!r})"
@@ -250,7 +257,7 @@ def _make_openai_client(
             f"choose one of {', '.join(_SPEC_BY_PROVIDER)}"
         )
     key = keys.get_api_key(provider, override=api_key)
-    if spec.needs_key and not key:
+    if spec.needs_key and key is None:
         raise ProviderUnavailableError(
             f"no API key for {provider}: pass api_key=, set {keys.ENV_BY_PROVIDER[provider]}, "
             f"or run 'thinchat set {provider}'"
@@ -259,7 +266,7 @@ def _make_openai_client(
     return OpenAICompatibleClient(
         provider        = provider,
         base_url        = base_url,
-        api_key         = key or _OLLAMA_DUMMY_KEY,   # Ollama ignores the key, but the SDK needs a non-empty one
+        api_key         = key,   # a Secret, or None for ollama; the client reveals it only for the SDK
         model           = model or spec.chat_model,
         embed_model     = spec.embed_model,
         has_native_json = spec.has_native_json,
