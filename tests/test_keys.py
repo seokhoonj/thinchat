@@ -30,7 +30,7 @@ def _write_store(contents):
 
 def test_reads_key_from_environment(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    assert get_api_key("openai") == "sk-test"
+    assert (k := get_api_key("openai")) is not None and k.reveal() == "sk-test"
 
 
 def test_missing_key_is_none():
@@ -68,32 +68,32 @@ def test_explicit_api_key_does_not_read_the_store(monkeypatch):
 
 def test_stores_a_key_then_reads_it_back():
     set_api_key("claude", value="sk-stored")
-    assert get_api_key("claude") == "sk-stored"
+    assert (k := get_api_key("claude")) is not None and k.reveal() == "sk-stored"
 
 
 def test_storing_over_an_existing_key_overwrites():
     set_api_key("openai", value="first")
     set_api_key("openai", value="second")
-    assert get_api_key("openai") == "second"
+    assert (k := get_api_key("openai")) is not None and k.reveal() == "second"
     assert stored_providers() == ["openai"]   # listed once, not twice
 
 
 def test_environment_beats_the_stored_key(monkeypatch):
     set_api_key("openai", value="from-store")
     monkeypatch.setenv("OPENAI_API_KEY", "from-env")
-    assert get_api_key("openai") == "from-env"
+    assert (k := get_api_key("openai")) is not None and k.reveal() == "from-env"
 
 
 def test_explicit_override_beats_environment_and_store(monkeypatch):
     set_api_key("openai", value="from-store")
     monkeypatch.setenv("OPENAI_API_KEY", "from-env")
-    assert get_api_key("openai", override="explicit") == "explicit"
+    assert (k := get_api_key("openai", override="explicit")) is not None and k.reveal() == "explicit"
 
 
 def test_blank_environment_falls_through_to_the_store(monkeypatch):
     set_api_key("gemini", value="from-store")
     monkeypatch.setenv("GEMINI_API_KEY", "")   # a blank env value is treated as absent
-    assert get_api_key("gemini") == "from-store"
+    assert (k := get_api_key("gemini")) is not None and k.reveal() == "from-store"
 
 
 def test_stored_providers_reflects_set_and_unset():

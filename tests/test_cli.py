@@ -21,14 +21,14 @@ def test_set_stores_the_entered_key(monkeypatch, capsys):
     _answer_prompt_with(monkeypatch, "sk-entered")
     exit_code = main(["set", "claude"])
     assert exit_code == 0
-    assert get_api_key("claude") == "sk-entered"
+    assert (k := get_api_key("claude")) is not None and k.reveal() == "sk-entered"
     assert "stored the API key for claude" in capsys.readouterr().out
 
 
 def test_set_strips_surrounding_whitespace(monkeypatch):
     _answer_prompt_with(monkeypatch, "  sk-padded  ")
     main(["set", "openai"])
-    assert get_api_key("openai") == "sk-padded"
+    assert (k := get_api_key("openai")) is not None and k.reveal() == "sk-padded"
 
 
 def test_set_with_blank_input_is_a_usage_error(monkeypatch, capsys):
@@ -101,7 +101,10 @@ def test_set_validates_the_provider_before_prompting(provider, monkeypatch):
 
 @pytest.mark.parametrize(
     "length, expected",
-    [(12, "*" * 12), (13, "kkkk...kkkk")],   # edges appear only once the middle stays hidden
+    # credbox's Secret masking (edge=4): the edges appear only once the value is long enough
+    # that they leave a hidden middle (len >= 4*edge = 16); anything shorter is a fixed "***"
+    # that reveals neither the edges nor the length.
+    [(15, "***"), (16, "kkkk...kkkk")],
 )
 def test_get_reveals_edges_only_above_the_mask_threshold(length, expected, capsys):
     set_api_key("claude", value="k" * length)

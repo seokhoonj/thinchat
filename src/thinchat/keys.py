@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import get_args
 
-from credbox import CredBoxError, Credentials
+from credbox import CredBoxError, Credentials, Secret
 
 from thinchat.client import Provider
 from thinchat.errors import CredentialStoreError, UnknownProviderError, UnsupportedError
@@ -49,11 +49,13 @@ _ALL_PROVIDERS_ORDER: tuple[str, ...] = get_args(Provider)
 _ALL_PROVIDERS: frozenset[str] = frozenset(_ALL_PROVIDERS_ORDER)
 
 
-def get_api_key(provider: str, *, override: str | None = None) -> str | None:
-    """Resolve ``provider``'s API key across ``override`` > env > stored file, or ``None``
-    when it is unset everywhere (so a client can phrase its own "no key" error) or the
-    provider needs none (ollama). ``override`` is ``make_client``'s ``api_key=``, kept as the
-    top tier so a caller managing its own secrets never reads the store.
+def get_api_key(provider: str, *, override: str | None = None) -> Secret | None:
+    """Resolve ``provider``'s API key across ``override`` > env > stored file as a ``Secret``
+    (which masks itself in ``repr``/``str`` and logs), or ``None`` when it is unset everywhere
+    (so a client can phrase its own "no key" error) or the provider needs none (ollama). Call
+    ``.reveal()`` only at the point the plaintext is required (e.g. the SDK constructor).
+    ``override`` is ``make_client``'s ``api_key=``, kept as the top tier so a caller managing
+    its own secrets never reads the store.
 
     Raises:
         UnknownProviderError: ``provider`` is not one thinchat supports (a typo resolves to
@@ -66,12 +68,11 @@ def get_api_key(provider: str, *, override: str | None = None) -> str | None:
             f"unknown provider {provider!r}; choose one of {', '.join(_ALL_PROVIDERS_ORDER)}")
     name = ENV_BY_PROVIDER.get(provider)
     if name is None:                      # ollama: known, but needs no key
-        return override
+        return Secret(override) if override is not None else None
     try:
-        value = _store.secret(name, override=override)   # credbox returns a Secret | None
+        return _store.secret(name, override=override)   # credbox returns a Secret | None
     except CredBoxError as err:
         raise CredentialStoreError(f"could not read the stored key for {provider}") from err
-    return value.reveal() if value is not None else None
 
 
 def set_api_key(provider: str, *, value: str) -> None:

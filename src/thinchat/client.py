@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Iterator, Sequence
 from typing import Any, Literal, Protocol, Self, runtime_checkable
 
-from credbox import scrub_exception, scrub_secrets
+from credbox import Secret, scrub_exception, scrub_secrets
 
 from thinchat.errors import LLMError, RateLimitError, UnsupportedError
 from thinchat.structured_output import make_json_instruction, parse_json
@@ -116,7 +116,7 @@ class _BaseClient(ABC):
     _aclient:     Any   # the vendor's async SDK client, or None until first async use
     _ratelimit_error: type[BaseException]   # the vendor SDK's 429 exception, mapped to RateLimitError
     _provider_label:  str                   # provider name shown in error messages
-    _secret_key:      str | None            # the key to scrub from errors; None when there is none (ollama)
+    _secret_key:      Secret | None          # the key to scrub from errors; None when there is none (ollama)
 
     def _map_sdk_failure(self, err: Exception, action: str) -> LLMError:
         """Map a caught SDK error to a rate-limit error with any requested wait, or a plain

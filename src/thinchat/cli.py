@@ -19,10 +19,6 @@ from thinchat.errors import ThinchatError
 
 __all__ = ["main"]
 
-# Characters kept at each end of a masked key -- enough to recognise which key is stored, too
-# few to reconstruct it.
-_MASK_EDGE = 4
-
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the thinchat CLI. Returns the process exit code: 0 on success, 1 on a thinchat
@@ -79,7 +75,7 @@ def _cmd_get(args: argparse.Namespace) -> int:
     if key is None:
         print(f"no key for {args.provider}")
         return 0
-    print(_mask(key))
+    print(key)   # a Secret: str() masks it (edges only, or *** when too short to show edges)
     return 0
 
 
@@ -96,14 +92,6 @@ def _cmd_unset(args: argparse.Namespace) -> int:
     return 0
 
 
-def _mask(value: str) -> str:
-    """Render ``value`` with only its first and last few characters visible, the middle
-    replaced by a marker -- enough to recognise the key, never enough to recover it. Edges are
-    revealed only when the hidden middle is itself substantial (more than ``_MASK_EDGE``
-    characters); a shorter value is shown fully masked so it cannot be nearly reconstructed."""
-    if len(value) <= 3 * _MASK_EDGE:
-        return "*" * len(value)
-    return f"{value[:_MASK_EDGE]}...{value[-_MASK_EDGE:]}"
 
 
 # Command name -> handler. A dict dispatch (over argparse ``set_defaults``) keeps ``main``'s
