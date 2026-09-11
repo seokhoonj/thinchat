@@ -149,6 +149,26 @@ def test_a_key_in_the_sdk_error_request_headers_is_unreachable(monkeypatch):
     assert _TEST_API_KEY in request.headers["Authorization"]
 
 
+def test_mapping_a_failure_is_total_even_if_the_retry_after_header_raises(monkeypatch):
+    # _map_sdk_failure runs while still inside each verb's `except` block. If the Retry-After
+    # read let a hostile headers.get() escape, the exception raised there would implicitly chain
+    # __context__ to the key-bearing SDK error and defeat the severance. A pathological getter
+    # must degrade to retry_after=None and still yield a clean, severed error.
+    class _HostileHeaders:
+        def get(self, name):
+            raise RuntimeError("boom from headers.get")
+
+    err = FakeOpenAIRateLimitError(f"429 for key {_TEST_API_KEY}")
+    err.response = types.SimpleNamespace(headers=_HostileHeaders())
+    install_openai(monkeypatch, error=err)
+    client = make_client("openai", api_key=_TEST_API_KEY)
+    with pytest.raises(RateLimitError) as exc_info:
+        client.complete("hi")
+    assert exc_info.value.retry_after is None   # the raising getter degraded to None, did not escape
+    assert exc_info.value.__cause__ is None and exc_info.value.__context__ is None
+    _assert_secret_absent(_TEST_API_KEY, exc_info.value)
+
+
 def test_the_ollama_placeholder_key_is_not_scrubbed(monkeypatch):
     install_openai(monkeypatch, error=FakeOpenAIError("ollama server is not running on localhost"))
     client = make_client("ollama")   # no key -> the dummy placeholder, which is not a secret

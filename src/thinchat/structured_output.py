@@ -69,10 +69,12 @@ def parse_json(reply: str) -> dict[str, object]:
 
 
 def _snippet(text: str) -> str:
-    """The first 120 characters of ``text`` with C0 control characters and DEL neutralized to
-    spaces, so a model reply echoed into an error message cannot smuggle ANSI escapes or
-    carriage returns into a terminal or log line."""
-    return "".join(" " if ch < " " or ch == "\x7f" else ch for ch in text[:120])
+    """The first 120 characters of ``text`` with C0 and C1 control characters (plus DEL)
+    neutralized to spaces, so a model reply echoed into an error message cannot smuggle ANSI
+    escapes or carriage returns into a terminal or log line. C1 (U+0080-U+009F) is included
+    because U+009B is CSI -- the single-character form of ``ESC[`` that terminals honour in
+    UTF-8 mode -- so dropping it would leave the very escape sequence this guards against."""
+    return "".join(" " if ch < " " or "\x7f" <= ch <= "\x9f" else ch for ch in text[:120])
 
 
 def _unfence(text: str) -> str:

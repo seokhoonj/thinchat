@@ -69,7 +69,14 @@ def _retry_after_seconds(err: object) -> float | None:
     getter = getattr(headers, "get", None)
     if getter is None:
         return None
-    raw = getter("retry-after")
+    # The header read is guarded because _map_sdk_failure runs while still inside each verb's
+    # `except` block: if a hostile headers.get() escaped here, the raised exception would
+    # implicitly chain __context__ to the key-bearing SDK error and defeat the severance. Any
+    # failure degrades to None (no retry hint), keeping the mapping total.
+    try:
+        raw = getter("retry-after")
+    except Exception:
+        return None
     if raw is None:
         return None
     try:

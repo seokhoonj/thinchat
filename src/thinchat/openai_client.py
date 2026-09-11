@@ -284,6 +284,8 @@ def _make_openai_client(
         UnknownProviderError: ``provider`` is not an OpenAI-compatible provider.
         ProviderUnavailableError: the openai SDK is not installed, or the provider needs a
             key and none is set (or passed).
+        CredentialStoreError: the stored-key file is present but unreadable or malformed
+            (propagated from the key store).
     """
     spec = _SPEC_BY_PROVIDER.get(provider)
     if spec is None:

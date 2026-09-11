@@ -75,6 +75,8 @@ def make_client(
         UnknownProviderError: ``provider`` is not one of ``PROVIDERS``.
         ProviderUnavailableError: the provider's SDK is not installed, or it needs a key
             and none is available.
+        CredentialStoreError: the stored-key file is present but unreadable or malformed
+            (propagated from the key store).
     """
     if provider not in _FACTORY_BY_PROVIDER:
         raise UnknownProviderError(

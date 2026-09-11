@@ -58,6 +58,20 @@ async def test_openai_async_construction_failure_severs_the_key(monkeypatch):
     assert _KEY not in str(exc_info.value)
 
 
+async def test_claude_async_construction_failure_severs_the_key(monkeypatch):
+    # Claude's async client is built by a distinct AsyncAnthropic constructor whose frame holds
+    # the revealed key the same way; the claude async build path must sever too (the openai-async
+    # and claude-sync paths are covered above -- this fills the missing cell).
+    boom = FakeAnthropicError(f"async proxy rejected for key {_KEY}")
+    install_anthropic(monkeypatch)                    # sync client builds fine
+    client = make_client("claude", api_key=_KEY)
+    install_anthropic(monkeypatch, client_error=boom)  # re-install so the ASYNC constructor fails
+    with pytest.raises(ProviderUnavailableError) as exc_info:
+        await client.acomplete("hi")
+    assert exc_info.value.__cause__ is None and exc_info.value.__context__ is None
+    assert _KEY not in str(exc_info.value)
+
+
 # --- vector 3: base_url is pinned, so the SDK never reads its *_BASE_URL env ----------------
 
 def test_openai_base_url_is_pinned_over_a_hostile_env(monkeypatch):

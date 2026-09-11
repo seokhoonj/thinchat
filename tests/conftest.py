@@ -9,7 +9,9 @@ test starts from an empty, private credential state.
 
 import pytest
 
-_PROVIDER_ENV_VARS = ("OPENAI_API_KEY", "GEMINI_API_KEY", "CLAUDE_API_KEY")
+# The API-key env vars, plus OLLAMA_HOST: ollama's endpoint is resolved from the environment, so
+# a developer's exported OLLAMA_HOST would otherwise bleed into the default-endpoint tests.
+_PROVIDER_ENV_VARS = ("OPENAI_API_KEY", "GEMINI_API_KEY", "CLAUDE_API_KEY", "OLLAMA_HOST")
 
 
 @pytest.fixture(autouse=True)

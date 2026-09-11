@@ -176,6 +176,8 @@ def _make_claude_client(
     Raises:
         ProviderUnavailableError: the anthropic SDK is not installed, or no API key is set
             (or passed).
+        CredentialStoreError: the stored-key file is present but unreadable or malformed
+            (propagated from the key store).
     """
     key = keys.get_api_key("claude", override=api_key)
     if key is None:

@@ -41,6 +41,20 @@ def test_ollama_has_no_key_name():
     assert get_api_key("ollama") is None   # known, but a local server needs no key
 
 
+@pytest.mark.parametrize("raw", ["  sk-x  ", "sk-x", "   ", "", None])
+def test_ollama_override_normalizes_like_the_credbox_keyed_tier(raw):
+    # ollama has no credbox tier, so keys.get_api_key normalizes its override (strip +
+    # blank-is-absent) locally; the keyed providers route the override THROUGH credbox. The two
+    # rules never run on the same input, so nothing else can catch them drifting -- pin that they
+    # agree, so a change to credbox's blank-is-absent rule that keys.py no longer mirrors fails here.
+    ollama = get_api_key("ollama", override=raw)
+    keyed  = get_api_key("openai", override=raw)   # goes through credbox's own override normalization
+    if keyed is None:
+        assert ollama is None
+    else:
+        assert ollama is not None and ollama.reveal() == keyed.reveal()
+
+
 def test_get_rejects_an_unknown_provider():
     with pytest.raises(UnknownProviderError):
         get_api_key("bogus")   # a typo is an error, not a misleading "no key"
