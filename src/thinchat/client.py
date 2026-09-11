@@ -128,7 +128,7 @@ class _BaseClient(ABC):
         chain in place (args and a transport error's URL); ``scrub_secrets`` also cleans the
         rendered message we build, in case ``str(err)`` renders something other than ``args``.
         A provider with no secret (ollama) has ``_secret_key`` None, so nothing is redacted."""
-        secrets = [self._secret_key] if self._secret_key else []
+        secrets = [self._secret_key] if self._secret_key is not None else []
         scrub_exception(err, secrets)
         scrubbed_detail = scrub_secrets(str(err), secrets)
         if isinstance(err, self._ratelimit_error):

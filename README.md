@@ -107,7 +107,8 @@ thinchat unset claude    # remove it
 The same operations are available programmatically — `thinchat.set_api_key("claude",
 value=...)`, `thinchat.get_api_key("claude")`, `thinchat.stored_providers()`,
 `thinchat.unset_api_key(...)` — so a parent application can populate or read the store for its
-user. An environment variable always wins over the
+user. `get_api_key` returns a credbox `Secret | None` (masked in `repr`/`str`/logs; call
+`.reveal()` for the plaintext), not a bare string. An environment variable always wins over the
 stored file, so a container or CI run overrides the store by setting `<PROVIDER>_API_KEY`,
 with no file needed.
 

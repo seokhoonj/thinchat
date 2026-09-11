@@ -113,8 +113,9 @@ class OpenAICompatibleClient(_BaseClient):
 
     def _sdk_key(self) -> str:
         """The plaintext key the SDK constructor needs -- revealed HERE and nowhere else, so the
-        secret lives as a ``Secret`` everywhere else. ollama holds no key (``_secret_key`` None);
-        the SDK still requires a non-empty string, so it gets the non-secret placeholder."""
+        secret lives as a ``Secret`` everywhere else. When there is no key (``_secret_key`` None --
+        ollama with no override) the SDK still requires a non-empty string, so it gets the
+        non-secret placeholder; a non-blank ollama override, if one was passed, is forwarded as-is."""
         return self._secret_key.reveal() if self._secret_key is not None else _OLLAMA_DUMMY_KEY
 
     def _transport_kwargs(self) -> dict[str, Any]:
