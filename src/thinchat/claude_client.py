@@ -15,12 +15,19 @@ from typing import Any
 from credbox import Secret
 
 import thinchat.keys as keys
-from thinchat.client import Capability, _BaseClient
+from thinchat.client import Capability, _BaseClient, build_sdk_client
 from thinchat.errors import LLMError, ProviderUnavailableError
 
 __all__ = ["ClaudeClient"]
 
 _CLAUDE_DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+
+# The official Anthropic endpoint, pinned explicitly so the SDK does NOT fall back to reading
+# the ANTHROPIC_BASE_URL environment variable. Passing base_url=None would let an attacker who
+# controls the env (but cannot read the 0600 key store) set ANTHROPIC_BASE_URL and redirect the
+# store-resolved key to their host on the first request. A caller wanting a gateway endpoint
+# passes base_url= to make_client explicitly (a code decision, not an ambient env).
+_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 
 # No "embeddings": Anthropic has no first-party embeddings API, so embed stays the base's
 # refusing default and a caller reads `supports("embeddings")` as False.
@@ -42,7 +49,8 @@ class ClaudeClient(_BaseClient):
     _secret_key:    Secret   # claude always has a real key (never None, unlike the base's union)
 
     def __init__(
-        self, *, api_key: Secret, model: str, max_tokens: int = _CLAUDE_DEFAULT_MAX_TOKENS,
+        self, *, api_key: Secret, model: str, base_url: str,
+        max_tokens: int = _CLAUDE_DEFAULT_MAX_TOKENS,
         temperature: float | None = None, top_p: float | None = None,
         timeout: float | None = None, max_retries: int | None = None,
     ) -> None:
@@ -56,6 +64,7 @@ class ClaudeClient(_BaseClient):
             ) from err
         self.model          = model
         self.capabilities   = _CAPABILITIES
+        self._base_url      = base_url   # pinned official endpoint (or an explicit override)
         self._secret_key    = api_key   # a Secret; claude always has a real key, scrubbed from errors
         self._max_tokens    = max_tokens
         self._temperature   = temperature   # None -> omit (sampling knobs go in the request)
@@ -69,7 +78,12 @@ class ClaudeClient(_BaseClient):
         self._provider_label  = "claude"
         self._stream_errors   = (AnthropicError, httpx.HTTPError)
         # Reveal the Secret only here and in the async builder -- the two SDK-construction points.
-        self._client          = Anthropic(api_key=self._secret_key.reveal(), **self._transport_kwargs())
+        # Build via build_sdk_client so a constructor failure (e.g. a malformed ALL_PROXY that
+        # httpx rejects) never escapes with the revealed key live in the SDK's __init__ frame.
+        self._client          = build_sdk_client(
+            lambda: Anthropic(base_url=base_url, api_key=self._secret_key.reveal(), **self._transport_kwargs()),
+            provider="claude",
+        )
         self._aclient         = None   # built on first async use (see _make_aclient)
 
     def _transport_kwargs(self) -> dict[str, Any]:
@@ -86,36 +100,50 @@ class ClaudeClient(_BaseClient):
 
     def _make_aclient(self) -> Any:
         from anthropic import AsyncAnthropic  # the sync import above already proved it installed
-        return AsyncAnthropic(api_key=self._secret_key.reveal(), **self._transport_kwargs())
+        return build_sdk_client(
+            lambda: AsyncAnthropic(base_url=self._base_url, api_key=self._secret_key.reveal(),
+                                   **self._transport_kwargs()),
+            provider="claude",
+        )
 
     def complete(self, prompt: str, *, system: str | None = None) -> str:
         try:
             response = self._client.messages.create(**self._make_request(prompt, system))
         except self._sdk_error as err:
-            raise self._map_sdk_failure(err, "completion") from err
-        return _extract_message_text(response)
+            failure = self._map_sdk_failure(err, "completion")
+        else:
+            return _extract_message_text(response)
+        raise failure   # outside the except: the SDK error (key in its request headers/frame) is not chained
 
     async def acomplete(self, prompt: str, *, system: str | None = None) -> str:
         try:
             response = await self._get_aclient().messages.create(**self._make_request(prompt, system))
         except self._sdk_error as err:
-            raise self._map_sdk_failure(err, "completion") from err
-        return _extract_message_text(response)
+            failure = self._map_sdk_failure(err, "completion")
+        else:
+            return _extract_message_text(response)
+        raise failure
 
     def stream(self, prompt: str, *, system: str | None = None) -> Iterator[str]:
+        failure = None
         try:
             with self._client.messages.stream(**self._make_request(prompt, system)) as events:
                 yield from events.text_stream
         except self._stream_errors as err:
-            raise self._map_sdk_failure(err, "stream") from err
+            failure = self._map_sdk_failure(err, "stream")
+        if failure is not None:   # raise outside the except: no SDK error chained (its headers hold the key)
+            raise failure
 
     async def astream(self, prompt: str, *, system: str | None = None) -> AsyncIterator[str]:
+        failure = None
         try:
             async with self._get_aclient().messages.stream(**self._make_request(prompt, system)) as events:
                 async for chunk in events.text_stream:
                     yield chunk
         except self._stream_errors as err:
-            raise self._map_sdk_failure(err, "stream") from err
+            failure = self._map_sdk_failure(err, "stream")
+        if failure is not None:
+            raise failure
 
     def _make_request(self, prompt: str, system: str | None) -> dict[str, object]:
         request: dict[str, object] = {
@@ -133,12 +161,17 @@ class ClaudeClient(_BaseClient):
 
 
 def _make_claude_client(
-    *, model: str | None = None, api_key: str | None = None, max_tokens: int | None = None,
-    temperature: float | None = None, top_p: float | None = None,
+    *, model: str | None = None, api_key: str | None = None, base_url: str | None = None,
+    max_tokens: int | None = None, temperature: float | None = None, top_p: float | None = None,
     timeout: float | None = None, max_retries: int | None = None,
 ) -> ClaudeClient:
     """Construct the Claude client. ``max_tokens`` caps the reply; when None the default
     (Anthropic requires the field) is used. The other settings are sent only when set.
+
+    ``base_url`` (when given) points the client at a gateway/proxy endpoint. When None, the
+    official Anthropic endpoint is pinned so the SDK does NOT read ``ANTHROPIC_BASE_URL`` from
+    the environment -- an attacker with env-write but no read of the 0600 key store could
+    otherwise redirect the resolved key to their host.
 
     Raises:
         ProviderUnavailableError: the anthropic SDK is not installed, or no API key is set
@@ -153,6 +186,7 @@ def _make_claude_client(
     return ClaudeClient(
         api_key     = key,
         model       = model or _CLAUDE_DEFAULT_MODEL,
+        base_url    = base_url or _ANTHROPIC_BASE_URL,   # never None -> the SDK never reads its env var
         max_tokens  = max_tokens if max_tokens is not None else _CLAUDE_DEFAULT_MAX_TOKENS,
         temperature = temperature,
         top_p       = top_p,

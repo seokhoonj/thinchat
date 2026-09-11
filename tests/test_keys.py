@@ -188,6 +188,16 @@ def test_set_rejects_a_blank_value():
     assert stored_providers() == []   # a blank key that would resolve as absent is not stored
 
 
+def test_a_blank_value_raises_blank_key_error_in_the_thinchat_hierarchy():
+    # The blank-key refusal is a BlankKeyError -- both a ThinchatError (so `except ThinchatError`
+    # catches it) and a ValueError (so the existing `except ValueError` still does).
+    from thinchat.errors import BlankKeyError, ThinchatError
+    with pytest.raises(BlankKeyError) as exc_info:
+        set_api_key("openai", value="")
+    assert isinstance(exc_info.value, ThinchatError)
+    assert isinstance(exc_info.value, ValueError)
+
+
 @pytest.mark.skipif(os.name != "posix", reason="0600 file mode is a POSIX concept")
 def test_stored_key_file_is_owner_readable_only():
     set_api_key("claude", value="sk-secret")

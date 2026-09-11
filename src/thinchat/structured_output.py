@@ -20,10 +20,21 @@ __all__ = ["make_json_instruction", "parse_json"]
 
 def make_json_instruction(schema: dict[str, object]) -> str:
     """The line appended to a system prompt to steer a client with no native structured
-    output: reply as JSON matching this schema, nothing else."""
+    output: reply as JSON matching this schema, nothing else.
+
+    Raises:
+        LLMError: ``schema`` cannot be encoded as JSON (not serializable, self-referential,
+            or nested past the recursion limit) -- a bad schema surfaces on the parse path
+            like any other structured-output failure, not as a raw ``TypeError``/``ValueError``.
+    """
+    try:
+        encoded = json.dumps(schema)
+    except (ValueError, TypeError, RecursionError) as err:
+        # Content-free: name the failure, never echo the schema back into the message.
+        raise LLMError("the structured-output schema could not be encoded as JSON") from err
     return (
         "Reply with a single JSON object matching this JSON Schema, and nothing else -- "
-        f"no prose, no code fences:\n{json.dumps(schema)}"
+        f"no prose, no code fences:\n{encoded}"
     )
 
 
@@ -43,14 +54,25 @@ def parse_json(reply: str) -> dict[str, object]:
     # brace span; a bare json.loads would fail on the surrounding prose.
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end <= start:
-        raise LLMError(f"structured reply held no JSON object: {text[:120]}")
+        raise LLMError(f"structured reply held no JSON object: {_snippet(text)}")
+    # json.loads does not only raise JSONDecodeError: an integer literal past ~4300 digits
+    # raises a bare ValueError, and deeply nested brackets a RecursionError -- both from a
+    # hostile-but-well-fenced reply. Catch the broad ValueError (JSONDecodeError's own base)
+    # and RecursionError so neither escapes the package's LLMError contract.
     try:
         parsed = json.loads(text[start : end + 1])
-    except json.JSONDecodeError as err:
-        raise LLMError(f"structured reply was not valid JSON: {text[:120]}") from err
+    except (ValueError, RecursionError) as err:
+        raise LLMError(f"structured reply was not valid JSON: {_snippet(text)}") from err
     if not isinstance(parsed, dict):
         raise LLMError("structured reply was JSON but not an object")
     return parsed
+
+
+def _snippet(text: str) -> str:
+    """The first 120 characters of ``text`` with C0 control characters and DEL neutralized to
+    spaces, so a model reply echoed into an error message cannot smuggle ANSI escapes or
+    carriage returns into a terminal or log line."""
+    return "".join(" " if ch < " " or ch == "\x7f" else ch for ch in text[:120])
 
 
 def _unfence(text: str) -> str:

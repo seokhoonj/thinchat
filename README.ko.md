@@ -70,6 +70,11 @@ openai, gemini, ollama는 동일한 OpenAI 호환 API를 쓰므로 하나의 SDK
 URL·키·기본 모델만 다릅니다. Ollama는 로컬에서 실행되며(`OLLAMA_HOST`, 기본
 `http://localhost:11434`) 키가 필요 없습니다.
 
+Claude는 thinchat이 `CLAUDE_API_KEY`를 읽습니다 — anthropic SDK 자체의 `ANTHROPIC_API_KEY`가
+아닙니다. thinchat은 해석된 키를 항상 SDK에 명시적으로 넘기므로, 환경에 남아 있는
+`ANTHROPIC_API_KEY`는 절대 사용되지 않습니다. `CLAUDE_API_KEY`를 설정하거나 `thinchat set`으로
+저장하세요.
+
 각 provider는 공통으로 노출하는 설정을 같은 이름으로 받으며, **값을 줄 때만** 전송합니다:
 `max_tokens`(응답 길이), `temperature`/`top_p`(샘플링), `timeout`(초)/`max_retries`(HTTP
 클라이언트) — 예: `make_client("claude", temperature=0.2, timeout=30)`. 값을 안 주면 provider
@@ -93,7 +98,8 @@ export CLAUDE_API_KEY="sk-ant-..."   # ollama는 로컬이라 키 불필요
 ```
 
 또는 `thinchat` 명령으로 키를 한 번 저장해두면 0600 저장소에 기록되어 export 없이도 모든
-세션이 찾습니다 — 값은 절대 출력되지 않습니다(`set`은 에코 없이 입력받고, `get`은 마스킹):
+세션이 찾습니다 — 값 전체는 절대 출력되지 않습니다(`set`은 에코 없이 입력받고, `get`은
+양 끝만 남기고 마스킹하며, 끝을 보여줘도 대부분이 드러날 만큼 짧으면 `***`로 표시):
 
 ```sh
 thinchat set claude      # 키를 입력받아 저장
@@ -107,6 +113,14 @@ thinchat unset claude    # 저장된 키 삭제
 — 그래서 상위 애플리케이션이 사용자를 위해 저장소를 대신 채우거나 읽어줄 수 있습니다. `get_api_key`는 평문 문자열이 아니라
 credbox의 `Secret | None`을 돌려줍니다(`repr`/`str`/로그에서 마스킹; 평문이 필요하면 `.reveal()`). 환경변수는 항상 저장 파일을 이기므로, 컨테이너나
 CI에서는 `<PROVIDER>_API_KEY`만 설정하면 파일 없이 저장소를 덮어씁니다.
+
+게이트웨이·프록시·Azure류 엔드포인트로 보내려면 `make_client`에 `base_url=`을 넘깁니다
+(`make_client("openai", base_url="https://gateway.internal/v1")`). 넘기지 않으면 thinchat은
+엔드포인트를 비워두지 않고 각 provider의 공식 엔드포인트를 고정(pin)합니다 — 그래서 vendor
+SDK가 자체 `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` 환경변수를 읽지 않습니다. 즉 그런 변수를
+물려받은 프로세스라도 이제 `base_url=`을 명시하지 않는 한 그 값을 무시합니다. 이 변경은
+환경변수를 쓸 수 있지만 0600 저장소는 못 읽는 쪽이 해석된 키를 다른 호스트로 돌려보낼 수 있던
+경로를 막습니다. ollama는 여전히 `OLLAMA_HOST`에서 로컬 엔드포인트를 해석합니다.
 
 ## 4. 지원 기능(Capabilities)
 
@@ -126,6 +140,8 @@ thinchat이 의도적으로 던지는 모든 에러는 `ThinchatError`에서 파
 - `ProviderUnavailableError` — provider의 SDK가 설치되지 않았거나, API 키가 없음.
 - `UnsupportedError` — provider에서 그 작업이 불가능함: 없는 기능(예: Claude의 embeddings),
   또는 키가 필요 없는 ollama에 키를 저장하려는 경우.
+- `BlankKeyError` — `set_api_key`(또는 `thinchat set`)에 빈 값/공백 키가 들어옴. `ValueError`
+  이기도 해서 `except ValueError`로도 잡힙니다.
 - `CredentialStoreError` — 저장소 파일(`~/.config/thinchat/credentials.json`)이 존재하지만
   읽을 수 없거나 형식이 잘못됨, 또는 쓰기에 실패함.
 - `LLMError` — API 호출이 실패했거나, 응답이 비었거나 형식이 잘못됨. API 키는 메시지와 그

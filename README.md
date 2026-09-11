@@ -70,6 +70,10 @@ openai, gemini, and ollama speak the same OpenAI-compatible API, so one SDK serv
 three; only the base URL, key, and default models differ. Ollama runs locally
 (`OLLAMA_HOST`, default `http://localhost:11434`) and needs no key.
 
+For Claude, thinchat reads `CLAUDE_API_KEY` — not the anthropic SDK's own `ANTHROPIC_API_KEY`.
+thinchat always passes the resolved key to the SDK explicitly, so a stray `ANTHROPIC_API_KEY`
+in the environment is never picked up; set `CLAUDE_API_KEY` (or store it with `thinchat set`).
+
 Each provider takes the settings it exposes under the same name, sent only when you set them:
 `max_tokens` (reply length), `temperature` / `top_p` (sampling), and `timeout` in seconds /
 `max_retries` (the HTTP client) — e.g. `make_client("claude", temperature=0.2, timeout=30)`.
@@ -94,8 +98,8 @@ export CLAUDE_API_KEY="sk-ant-..."   # ollama runs locally and needs no key
 ```
 
 Or save a key once with the `thinchat` command, which writes the 0600 store so every session
-finds it without an export — the value is never printed (`set` reads it without echo, `get`
-masks it):
+finds it without an export — the full value is never printed (`set` reads it without echo,
+`get` shows it partially masked — edges only, or `***` when it is too short to show edges):
 
 ```sh
 thinchat set claude      # prompt for the key, store it
@@ -111,6 +115,15 @@ user. `get_api_key` returns a credbox `Secret | None` (masked in `repr`/`str`/lo
 `.reveal()` for the plaintext), not a bare string. An environment variable always wins over the
 stored file, so a container or CI run overrides the store by setting `<PROVIDER>_API_KEY`,
 with no file needed.
+
+To reach a gateway, proxy, or Azure-style endpoint, pass `base_url=` to `make_client`
+(`make_client("openai", base_url="https://gateway.internal/v1")`). When you do not, thinchat
+pins each provider's official endpoint rather than leaving it unset — so the vendor SDK never
+reads its own `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` environment variable. This means a
+process that inherited such a variable now ignores it unless you pass `base_url=` explicitly;
+the change closes a path where anything able to write the environment (but not read the 0600
+store) could redirect a resolved key to another host. Ollama still resolves its local endpoint
+from `OLLAMA_HOST`.
 
 ## 4. Capabilities
 
@@ -130,6 +143,8 @@ the package's failures:
 - `ProviderUnavailableError` — the provider's SDK isn't installed, or no API key is set.
 - `UnsupportedError` — the operation isn't available for the provider: a missing capability
   (e.g. embeddings on Claude), or storing a key for keyless ollama.
+- `BlankKeyError` — `set_api_key` (or `thinchat set`) was given an empty or whitespace key. It
+  is also a `ValueError`, so `except ValueError` catches it too.
 - `CredentialStoreError` — the stored-key file (`~/.config/thinchat/credentials.json`) is
   present but unreadable or malformed, or could not be written.
 - `LLMError` — the API call failed, or the reply was empty or malformed. The API key is
