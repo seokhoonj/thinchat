@@ -4,9 +4,9 @@ import json
 import os
 
 import pytest
-from credbox import CredBoxError, config_dir
+from credbox import CredBoxError, Secret, config_dir
 
-from tests.fakes import install_openai
+from tests.fakes import install_anthropic, install_openai
 from thinchat import make_client
 from thinchat.errors import CredentialStoreError, UnknownProviderError, UnsupportedError
 from thinchat.keys import (
@@ -52,6 +52,63 @@ def test_an_explicit_key_overrides_the_environment(monkeypatch):
     install_openai(monkeypatch, client_capture=client_arguments)
     make_client("openai", api_key="explicit")   # explicit wins over the set env var
     assert client_arguments["api_key"] == "explicit"
+
+
+def test_get_api_key_returns_a_secret(monkeypatch):
+    # The store returns a masking Secret, not a bare str -- pins the migrated return type so a
+    # regression to a plain string (re-widening the plaintext) is caught.
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-typed")
+    assert isinstance(get_api_key("openai"), Secret)
+
+
+def test_openai_sync_constructor_receives_the_revealed_key(monkeypatch):
+    # The ONLY place the key may be revealed is the vendor SDK constructor. If a regression passed
+    # the masked str(Secret) or the Secret object instead of .reveal()'d plaintext, auth would
+    # silently break. Pin the plaintext at each of the four constructor sites + the ollama dummy.
+    seen: dict[str, object] = {}
+    install_openai(monkeypatch, client_capture=seen)
+    make_client("openai", api_key="sk-openai-sync")
+    assert seen["api_key"] == "sk-openai-sync"
+
+
+async def test_openai_async_constructor_receives_the_revealed_key(monkeypatch):
+    seen: dict[str, object] = {}
+    install_openai(monkeypatch, aclient_capture=seen)
+    client = make_client("openai", api_key="sk-openai-async")
+    await client.acomplete("hi")   # first async use builds the async client
+    assert seen["api_key"] == "sk-openai-async"
+
+
+def test_claude_sync_constructor_receives_the_revealed_key(monkeypatch):
+    seen: dict[str, object] = {}
+    install_anthropic(monkeypatch, client_capture=seen)
+    make_client("claude", api_key="sk-claude-sync")
+    assert seen["api_key"] == "sk-claude-sync"
+
+
+async def test_claude_async_constructor_receives_the_revealed_key(monkeypatch):
+    seen: dict[str, object] = {}
+    install_anthropic(monkeypatch, aclient_capture=seen)
+    client = make_client("claude", api_key="sk-claude-async")
+    await client.acomplete("hi")
+    assert seen["api_key"] == "sk-claude-async"
+
+
+def test_ollama_construction_uses_the_dummy_key(monkeypatch):
+    seen: dict[str, object] = {}
+    install_openai(monkeypatch, client_capture=seen)
+    make_client("ollama")
+    assert seen["api_key"] == "ollama"   # the non-secret placeholder, no real key needed
+
+
+def test_ollama_with_a_blank_override_still_uses_the_dummy(monkeypatch):
+    # Regression: a blank override must normalize to absent (not Secret("")), so ollama falls back
+    # to the dummy rather than constructing the SDK with an empty key -- which the real OpenAI SDK
+    # rejects with a foreign OpenAIError escaping make_client.
+    seen: dict[str, object] = {}
+    install_openai(monkeypatch, client_capture=seen)
+    make_client("ollama", api_key="")
+    assert seen["api_key"] == "ollama"
 
 
 def test_explicit_api_key_does_not_read_the_store(monkeypatch):
@@ -183,7 +240,7 @@ def test_a_store_write_failure_never_adds_the_key_to_the_error(monkeypatch):
     def fail_write(*args, **kwargs):
         raise CredBoxError("backend write failed")
 
-    monkeypatch.setattr("thinchat.keys._store.set", fail_write)
+    monkeypatch.setattr("thinchat.keys._credentials.set", fail_write)
     with pytest.raises(CredentialStoreError) as exc_info:
         set_api_key("claude", value=secret)
     assert secret not in str(exc_info.value)

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import get_args
 
-from credbox import CredBoxError, Credentials, Secret
+from credbox import BlankSecretError, CredBoxError, Credentials, Secret
 
 from thinchat.client import Provider
 from thinchat.errors import CredentialStoreError, UnknownProviderError, UnsupportedError
@@ -31,7 +31,7 @@ _STORE_APP = "thinchat"
 # One credbox facade bound to that app, reused across calls. It uses the default (file) backend,
 # so keys persist to credentials.json (mode 0600); the path is resolved per call, so a test that
 # repoints XDG_CONFIG_HOME still isolates the store.
-_store = Credentials(_STORE_APP)
+_credentials = Credentials(_STORE_APP)
 
 # The environment variable each provider's key is read from, and the name it is stored under.
 # ollama is absent on purpose: a local server needs no key, so its client passes a dummy the
@@ -55,7 +55,8 @@ def get_api_key(provider: str, *, override: str | None = None) -> Secret | None:
     (so a client can phrase its own "no key" error) or the provider needs none (ollama). Call
     ``.reveal()`` only at the point the plaintext is required (e.g. the SDK constructor).
     ``override`` is ``make_client``'s ``api_key=``, kept as the top tier so a caller managing
-    its own secrets never reads the store.
+    its own secrets never reads the store. A blank/whitespace override is treated as absent at
+    every tier (including ollama's), matching credbox's own blank-is-absent normalization.
 
     Raises:
         UnknownProviderError: ``provider`` is not one thinchat supports (a typo resolves to
@@ -68,9 +69,12 @@ def get_api_key(provider: str, *, override: str | None = None) -> Secret | None:
             f"unknown provider {provider!r}; choose one of {', '.join(_ALL_PROVIDERS_ORDER)}")
     name = ENV_BY_PROVIDER.get(provider)
     if name is None:                      # ollama: known, but needs no key
-        return Secret(override) if override is not None else None
+        # Mirror credbox's keyed-tier normalization: strip, and treat blank as absent. Otherwise a
+        # blank override would become Secret("") and reach the SDK as an empty key.
+        cleaned = override.strip() if override is not None else None
+        return Secret(cleaned) if cleaned else None
     try:
-        return _store.secret(name, override=override)   # credbox returns a Secret | None
+        return _credentials.secret(name, override=override)   # credbox returns a Secret | None
     except CredBoxError as err:
         raise CredentialStoreError(f"could not read the stored key for {provider}") from err
 
@@ -83,14 +87,15 @@ def set_api_key(provider: str, *, value: str) -> None:
         UnknownProviderError: ``provider`` is not one thinchat supports.
         UnsupportedError: ``provider`` needs no API key (ollama), so none can be stored.
         ValueError: ``value`` is empty or whitespace -- a blank key would store as present but
-            resolve as absent, an inconsistency rejected at the boundary.
+            resolve as absent, an inconsistency credbox rejects (as ``BlankSecretError``, a
+            ``ValueError``); translated here to a provider-specific message.
         CredentialStoreError: the store could not be written.
     """
     name = _stored_name(provider)
-    if not value.strip():
-        raise ValueError(f"the API key for {provider} is empty")
     try:
-        _store.set(name, value=value)
+        _credentials.set(name, value=value)
+    except BlankSecretError as err:   # subclass of CredBoxError -- MUST precede the broad handler
+        raise ValueError(f"the API key for {provider} is empty") from err
     except CredBoxError as err:
         raise CredentialStoreError(f"could not store the key for {provider}") from err
 
@@ -106,7 +111,7 @@ def unset_api_key(provider: str) -> None:
     """
     name = _stored_name(provider)
     try:
-        _store.unset(name)
+        _credentials.unset(name)
     except CredBoxError as err:
         raise CredentialStoreError(f"could not remove the stored key for {provider}") from err
 
@@ -122,7 +127,7 @@ def stored_providers() -> list[str]:
             malformed, or the storage backend failed (propagated from credbox).
     """
     try:
-        stored = set(_store.names())
+        stored = set(_credentials.names())
     except CredBoxError as err:
         raise CredentialStoreError("could not read the credential store") from err
     return [provider for provider, name in ENV_BY_PROVIDER.items() if name in stored]
