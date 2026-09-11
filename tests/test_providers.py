@@ -27,6 +27,22 @@ def test_provider_literal_matches_the_runtime_roster():
     assert set(get_args(Provider)) == set(PROVIDERS)
 
 
+def test_provider_registries_are_coherent():
+    # The Provider type, the factory roster, and the OpenAI-compat spec table are separate
+    # registries kept in sync by import-time checks in providers.py / openai_client.py. Pin that
+    # they currently agree, so a drift (and a broken guard) is caught as a test failure too.
+    from typing import get_args
+
+    from thinchat.client import Provider
+    from thinchat.keys import ENV_BY_PROVIDER
+    from thinchat.openai_client import _SPEC_BY_PROVIDER
+    from thinchat.providers import _FACTORY_BY_PROVIDER
+    assert set(_FACTORY_BY_PROVIDER) == set(get_args(Provider))
+    assert set(_SPEC_BY_PROVIDER) <= set(_FACTORY_BY_PROVIDER)
+    for provider, spec in _SPEC_BY_PROVIDER.items():
+        assert spec.needs_key == (provider in ENV_BY_PROVIDER)
+
+
 def test_constructed_clients_satisfy_the_client_protocol(monkeypatch):
     install_openai(monkeypatch)
     install_anthropic(monkeypatch)

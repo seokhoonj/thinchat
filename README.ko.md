@@ -180,6 +180,11 @@ async with make_client("claude") as llm:
 `close()`는 동기 풀을 해제합니다. async verb를 사용했다면 `aclose()`나 `async with`로 async
 풀까지 닫으세요.
 
+**async** 스트림을 중간에 그만 소비하면(`async for`에서 `break`, 또는 클라이언트 연결 끊김)
+이벤트 루프가 제너레이터를 정리할 때까지 기다리지 않고 곧바로 연결이 풀로 돌아가도록 명시적으로
+닫으세요: `async with aclosing(llm.astream(...)) as s:`(`contextlib`) 또는 `await s.aclose()`.
+동기 `stream`은 `break` 시 스스로 해제되므로 async 스트림에만 필요합니다.
+
 ## 7. 동작 방식
 
 ```mermaid

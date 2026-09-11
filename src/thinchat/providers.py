@@ -9,12 +9,12 @@ cannot drift. Adding a provider is one entry here.
 from __future__ import annotations
 
 from functools import partial
-from typing import Protocol
+from typing import Protocol, get_args
 
 from thinchat.claude_client import _make_claude_client
 from thinchat.client import Client, Provider
 from thinchat.errors import UnknownProviderError
-from thinchat.openai_client import _make_openai_client
+from thinchat.openai_client import _SPEC_BY_PROVIDER, _make_openai_client
 
 __all__ = ["PROVIDERS", "make_client"]
 
@@ -45,6 +45,21 @@ _FACTORY_BY_PROVIDER: dict[Provider, _ClientFactory] = {
 # The providers thinchat supports, in insertion order -- derived from the factory map so
 # the roster and the dispatch never drift.
 PROVIDERS: tuple[Provider, ...] = tuple(_FACTORY_BY_PROVIDER)
+
+# Import-time coherence (a raise, not assert -- survives `python -O`): the Provider type, the
+# factory roster, and the OpenAI-compat spec table are separate registries. Tie them so a
+# provider added to one but not the others fails here at import, not at a user's make_client()
+# call (a provider in the type without a factory would be typed-but-unusable; an OpenAI-compat
+# factory without a spec would be advertised in PROVIDERS but raise at construction).
+if frozenset(_FACTORY_BY_PROVIDER) != frozenset(get_args(Provider)):
+    raise RuntimeError("the Provider type and the make_client factory roster disagree")
+_compat_bound = frozenset(
+    factory.args[0]
+    for factory in _FACTORY_BY_PROVIDER.values()
+    if isinstance(factory, partial) and factory.func is _make_openai_client
+)
+if _compat_bound != frozenset(_SPEC_BY_PROVIDER):
+    raise RuntimeError("the OpenAI-compatible factory roster and _SPEC_BY_PROVIDER disagree")
 
 
 def make_client(

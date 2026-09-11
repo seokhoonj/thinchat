@@ -46,6 +46,10 @@ class _ProviderSpec:
     is resolved from ``OLLAMA_HOST`` at construction (so the ``base_url`` field is ignored).
     ``has_native_json`` marks an endpoint that honours ``response_format`` -- OpenAI and
     Gemini do; Ollama's compat layer does not, so it falls back to prompt-steered JSON.
+    ``max_tokens_field`` is the request field the reply cap is sent under: OpenAI's newer
+    (o-series / GPT-5-class) models reject ``max_tokens`` and require ``max_completion_tokens``,
+    while the Gemini and Ollama compat layers take the original ``max_tokens`` -- so a provider
+    quirk stays data here rather than an ``if provider ==`` branch in the request builder.
     Keyword-only so two same-typed model ids cannot be transposed by position."""
 
     base_url:        str | None
@@ -54,6 +58,7 @@ class _ProviderSpec:
     has_native_json: bool
     needs_key:       bool
     is_local:        bool
+    max_tokens_field: str
 
 
 # The three providers, as data. A `-latest` alias for Gemini, not a pinned name: Google
@@ -63,15 +68,27 @@ class _ProviderSpec:
 _SPEC_BY_PROVIDER: dict[str, _ProviderSpec] = {
     "openai": _ProviderSpec(
         base_url=None, chat_model="gpt-4o-mini", embed_model="text-embedding-3-small",
-        has_native_json=True, needs_key=True, is_local=False),
+        has_native_json=True, needs_key=True, is_local=False,
+        max_tokens_field="max_completion_tokens"),
     "gemini": _ProviderSpec(
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         chat_model="gemini-flash-lite-latest", embed_model="gemini-embedding-001",
-        has_native_json=True, needs_key=True, is_local=False),
+        has_native_json=True, needs_key=True, is_local=False,
+        max_tokens_field="max_tokens"),
     "ollama": _ProviderSpec(
         base_url=None, chat_model="llama3.1", embed_model="nomic-embed-text",
-        has_native_json=False, needs_key=False, is_local=True),
+        has_native_json=False, needs_key=False, is_local=True,
+        max_tokens_field="max_tokens"),
 }
+
+# Coherence: each spec's needs_key must match keys.py's keyed/keyless classification. Otherwise
+# the missing-key path below indexes keys.ENV_BY_PROVIDER[provider] and would raise a raw
+# KeyError inside the error message (needs_key True but keyless there), or skip the key check
+# entirely (needs_key False but keyed there). Enforced at import with a raise (survives -O).
+for _provider, _spec in _SPEC_BY_PROVIDER.items():
+    if _spec.needs_key != (_provider in keys.ENV_BY_PROVIDER):
+        raise RuntimeError(
+            f"provider {_provider!r}: _ProviderSpec.needs_key disagrees with keys.ENV_BY_PROVIDER")
 
 
 class OpenAICompatibleClient(_BaseClient):
@@ -84,7 +101,8 @@ class OpenAICompatibleClient(_BaseClient):
 
     def __init__(
         self, *, provider: str, base_url: str | None, api_key: Secret | None, model: str,
-        embed_model: str, has_native_json: bool, max_tokens: int | None = None,
+        embed_model: str, has_native_json: bool, max_tokens_field: str = "max_tokens",
+        max_tokens: int | None = None,
         temperature: float | None = None, top_p: float | None = None,
         timeout: float | None = None, max_retries: int | None = None,
     ) -> None:
@@ -103,6 +121,7 @@ class OpenAICompatibleClient(_BaseClient):
         self._secret_key      = api_key   # a Secret, or None for a keyless provider (ollama)
         self._embed_model     = embed_model
         self._has_native_json = has_native_json
+        self._max_tokens_field = max_tokens_field   # "max_tokens" or openai's "max_completion_tokens"
         self._max_tokens      = max_tokens    # None -> omit (OpenAI-compatible; the model decides)
         self._temperature     = temperature   # None -> omit (sampling knobs go in the request)
         self._top_p           = top_p
@@ -249,12 +268,9 @@ class OpenAICompatibleClient(_BaseClient):
     def _make_request(self, messages: list[dict[str, str]], *, json_mode: bool) -> dict[str, object]:
         request: dict[str, object] = {"model": self.model, "messages": messages}
         if self._max_tokens is not None:   # optional here, so send it only when set
-            # OpenAI deprecated ``max_tokens`` for its newer (o-series / GPT-5-class) models,
-            # which reject it; ``max_completion_tokens`` is accepted across current OpenAI chat
-            # models. Gemini's and Ollama's OpenAI-compat layers take the original ``max_tokens``,
-            # so the field name is keyed on the provider.
-            field = "max_completion_tokens" if self._provider == "openai" else "max_tokens"
-            request[field] = self._max_tokens
+            # The field name is per-provider data (_ProviderSpec.max_tokens_field): OpenAI's
+            # newer models require max_completion_tokens; the compat layers take max_tokens.
+            request[self._max_tokens_field] = self._max_tokens
         if self._temperature is not None:
             request["temperature"] = self._temperature
         if self._top_p is not None:
@@ -314,9 +330,10 @@ def _make_openai_client(
         provider        = provider,
         base_url        = effective_base_url,
         api_key         = key,   # a Secret, or None for ollama; the client reveals it only for the SDK
-        model           = model or spec.chat_model,
-        embed_model     = spec.embed_model,
-        has_native_json = spec.has_native_json,
+        model            = model or spec.chat_model,
+        embed_model      = spec.embed_model,
+        has_native_json  = spec.has_native_json,
+        max_tokens_field = spec.max_tokens_field,
         max_tokens      = max_tokens,
         temperature     = temperature,
         top_p           = top_p,

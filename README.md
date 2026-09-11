@@ -184,6 +184,12 @@ async with make_client("claude") as llm:
 `close()` frees the sync pool; if you drove async verbs, release with `aclose()` or
 `async with` so the async pool is closed as well.
 
+If you stop consuming an **async** stream early — a `break` out of `async for`, or a client
+disconnect — close it promptly so its connection returns to the pool instead of waiting for the
+event loop to finalize the generator: `async with aclosing(llm.astream(...)) as s:` (from
+`contextlib`), or `await s.aclose()`. A sync `stream` releases on `break` by itself; only the
+async stream needs this.
+
 ## 7. How it works
 
 ```mermaid
