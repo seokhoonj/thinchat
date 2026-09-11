@@ -53,8 +53,13 @@ vectors = make_client("openai").embed(["hello", "world"])
 Every verb has an async twin — `acomplete`, `astream`, `aparse`, `aembed`:
 
 ```python
-llm = make_client("claude")
-text = await llm.acomplete("Summarize in one line: ...")
+import asyncio
+
+async def main():
+    llm = make_client("claude")
+    text = await llm.acomplete("Summarize in one line: ...")
+
+asyncio.run(main())
 ```
 
 ## 3. Providers

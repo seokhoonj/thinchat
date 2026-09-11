@@ -53,8 +53,13 @@ vectors = make_client("openai").embed(["강아지", "고양이"])
 모든 verb에는 async 짝이 있습니다 — `acomplete`, `astream`, `aparse`, `aembed`:
 
 ```python
-llm = make_client("claude")
-text = await llm.acomplete("이 문장을 한 줄로 요약해줘: ...")
+import asyncio
+
+async def main():
+    llm = make_client("claude")
+    text = await llm.acomplete("이 문장을 한 줄로 요약해줘: ...")
+
+asyncio.run(main())
 ```
 
 ## 3. Provider

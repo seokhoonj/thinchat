@@ -91,8 +91,8 @@ def _retry_after_seconds(err: object) -> float | None:
         return None
     try:
         seconds = float(raw)
-    except (OverflowError, TypeError, ValueError):
-        return None
+    except Exception:   # total like the getter above: this runs inside a verb's except block, so
+        return None     # an escape here would chain __context__ to the key-bearing SDK error
     return seconds if math.isfinite(seconds) and 0 <= seconds <= _MAX_RETRY_AFTER_SECONDS else None
 
 

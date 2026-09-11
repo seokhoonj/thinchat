@@ -355,7 +355,7 @@ def _extract_chat_text(response: object) -> str:
     """The first message's text from a chat-completions response, or an ``LLMError`` when
     the reply carries none (an empty choice list or empty content)."""
     choices = getattr(response, "choices", None)
-    if not choices:
+    if not isinstance(choices, (list, tuple)) or not choices:   # a truthy non-list would KeyError on [0]
         raise LLMError("completion returned no choices")
     text = getattr(getattr(choices[0], "message", None), "content", None)
     if not isinstance(text, str) or not text.strip():   # blank reply is empty, like Claude's
@@ -367,7 +367,7 @@ def _extract_stream_text(chunk: object) -> str | None:
     """The incremental text of one streaming chunk, or None for a chunk that carries no
     content (role-only openers, finish markers)."""
     choices = getattr(chunk, "choices", None)
-    if not choices:
+    if not isinstance(choices, (list, tuple)) or not choices:   # a truthy non-list would KeyError on [0]
         return None
     delta = getattr(getattr(choices[0], "delta", None), "content", None)
     return delta if isinstance(delta, str) else None
@@ -420,5 +420,11 @@ def _extract_embedding_vectors(response: object, *, expected: int) -> list[list[
         embedding = getattr(item, "embedding", None)
         if not isinstance(embedding, list) or not embedding:
             raise LLMError("embedding response held an item with no vector")
-        vectors.append(list(embedding))
+        # The elements must be real numbers: a non-conforming gateway could JSON-encode the
+        # scalars as strings (or nest them), which would otherwise be returned as list[list[str]]
+        # under the list[list[float]] hint and detonate downstream. bool is excluded -- it is an
+        # int subclass but never a valid embedding component.
+        if not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in embedding):
+            raise LLMError("embedding response held a non-numeric vector")
+        vectors.append([float(x) for x in embedding])
     return vectors

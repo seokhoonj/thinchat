@@ -432,6 +432,22 @@ def test_embed_raises_when_an_item_has_no_vector(monkeypatch):
         _client(monkeypatch, vectors=(None,)).embed(["a"])
 
 
+def test_embed_rejects_non_numeric_vector_elements(monkeypatch):
+    # A non-conforming gateway could JSON-encode the scalars as strings; that must be an LLMError,
+    # not a silently wrong-typed list[list[str]] returned under the list[list[float]] hint.
+    response = fake_embeddings([(["0.1", "0.2"], 0)])
+    with pytest.raises(LLMError):
+        _client(monkeypatch, embedding=response).embed(["a"])
+
+
+def test_complete_raises_llmerror_on_a_non_list_choices(monkeypatch):
+    # A malformed response whose `choices` is a truthy non-list (a dict) must degrade to
+    # LLMError, not a raw KeyError from indexing choices[0].
+    bad = types.SimpleNamespace(choices={"0": "x"})
+    with pytest.raises(LLMError):
+        _client(monkeypatch, completion=bad).complete("hi")
+
+
 def test_embed_raises_when_the_count_does_not_match_the_inputs(monkeypatch):
     # Two inputs but one vector back: a short response would otherwise silently drop an input.
     response = fake_embeddings([([1.0], 0)])
