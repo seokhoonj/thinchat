@@ -21,7 +21,12 @@ from typing import get_args
 from credbox import BlankSecretError, CredBoxError, Credentials, Secret
 
 from thinchat.client import Provider
-from thinchat.errors import CredentialStoreError, UnknownProviderError, UnsupportedError
+from thinchat.errors import (
+    BlankKeyError,
+    CredentialStoreError,
+    UnknownProviderError,
+    UnsupportedError,
+)
 
 __all__ = ["ENV_BY_PROVIDER", "get_api_key", "set_api_key", "unset_api_key", "stored_providers"]
 
@@ -47,6 +52,21 @@ ENV_BY_PROVIDER: dict[str, str] = {
 # never drift; the ordered tuple gives messages a stable order (frozenset iteration has none).
 _ALL_PROVIDERS_ORDER: tuple[str, ...] = get_args(Provider)
 _ALL_PROVIDERS: frozenset[str] = frozenset(_ALL_PROVIDERS_ORDER)
+
+# The providers that need no API key (a local server authenticates nothing). Kept explicit so
+# the check below can prove that ENV_BY_PROVIDER and this set together partition every
+# Provider. Without it, a provider added to the Provider type but left out of ENV_BY_PROVIDER
+# would be silently treated as keyless -- get_api_key would return None ("no key") for a
+# provider that actually needs one, instead of surfacing the missing key. Enforced with an
+# explicit raise (not assert) so it survives `python -O`.
+_KEYLESS_PROVIDERS: frozenset[str] = frozenset({"ollama"})
+
+if not ENV_BY_PROVIDER.keys().isdisjoint(_KEYLESS_PROVIDERS):
+    raise RuntimeError("a thinchat provider cannot be both keyed and keyless")
+if ENV_BY_PROVIDER.keys() | _KEYLESS_PROVIDERS != _ALL_PROVIDERS:
+    raise RuntimeError(
+        "every thinchat provider must be classified keyed (ENV_BY_PROVIDER) or keyless "
+        "(_KEYLESS_PROVIDERS); the two no longer cover the Provider type")
 
 
 def get_api_key(provider: str, *, override: str | None = None) -> Secret | None:
@@ -86,16 +106,17 @@ def set_api_key(provider: str, *, value: str) -> None:
     Raises:
         UnknownProviderError: ``provider`` is not one thinchat supports.
         UnsupportedError: ``provider`` needs no API key (ollama), so none can be stored.
-        ValueError: ``value`` is empty or whitespace -- a blank key would store as present but
-            resolve as absent, an inconsistency credbox rejects (as ``BlankSecretError``, a
-            ``ValueError``); translated here to a provider-specific message.
+        BlankKeyError: ``value`` is empty or whitespace -- a blank key would store as present
+            but resolve as absent, an inconsistency the store rejects (credbox raises
+            ``BlankSecretError``); translated here to a thinchat error (a ``ValueError`` too,
+            so ``except ValueError`` still catches it).
         CredentialStoreError: the store could not be written.
     """
     name = _stored_name(provider)
     try:
         _credentials.set(name, value=value)
     except BlankSecretError as err:   # subclass of CredBoxError -- MUST precede the broad handler
-        raise ValueError(f"the API key for {provider} is empty") from err
+        raise BlankKeyError(f"the API key for {provider} is empty") from err
     except CredBoxError as err:
         raise CredentialStoreError(f"could not store the key for {provider}") from err
 

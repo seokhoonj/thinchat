@@ -17,7 +17,7 @@ from typing import Any
 from credbox import Secret
 
 import thinchat.keys as keys
-from thinchat.client import Capability, _BaseClient
+from thinchat.client import Capability, _BaseClient, build_sdk_client
 from thinchat.errors import LLMError, ProviderUnavailableError, UnknownProviderError
 
 __all__ = ["OpenAICompatibleClient"]
@@ -25,6 +25,13 @@ __all__ = ["OpenAICompatibleClient"]
 # ollama runs locally and needs no key, but the OpenAI SDK requires a non-empty one, so its
 # client is built with this placeholder. It is not a secret, so it is never a key to scrub.
 _OLLAMA_DUMMY_KEY = "ollama"
+
+# The official OpenAI endpoint, pinned explicitly so the SDK does NOT fall back to reading
+# the OPENAI_BASE_URL environment variable. Passing base_url=None would let an attacker who
+# controls the env (but cannot read the 0600 key store) set OPENAI_BASE_URL and redirect the
+# store-resolved key to their host on the first request. A caller wanting a gateway/Azure
+# endpoint passes base_url= to make_client explicitly (a code decision, not an ambient env).
+_OPENAI_BASE_URL = "https://api.openai.com/v1"
 
 # An OpenAI-compatible client does everything; only Claude drops a capability.
 _CAPABILITIES: frozenset[Capability] = frozenset(
@@ -108,7 +115,12 @@ class OpenAICompatibleClient(_BaseClient):
         # The streaming iteration path does NOT wrap transport failures in OpenAIError, so
         # a mid-stream disconnect raises a raw httpx error; catch that base there too.
         self._stream_errors   = (OpenAIError, httpx.HTTPError)
-        self._client          = OpenAI(base_url=base_url, api_key=self._sdk_key(), **self._transport_kwargs())
+        # Build via build_sdk_client so a constructor failure (e.g. a malformed ALL_PROXY that
+        # httpx rejects) never escapes with the revealed key live in the SDK's __init__ frame.
+        self._client          = build_sdk_client(
+            lambda: OpenAI(base_url=base_url, api_key=self._sdk_key(), **self._transport_kwargs()),
+            provider=provider,
+        )
         self._aclient         = None   # built on first async use (see _make_aclient)
 
     def _sdk_key(self) -> str:
@@ -132,7 +144,10 @@ class OpenAICompatibleClient(_BaseClient):
 
     def _make_aclient(self) -> Any:
         from openai import AsyncOpenAI  # the sync import above already proved it installed
-        return AsyncOpenAI(base_url=self._base_url, api_key=self._sdk_key(), **self._transport_kwargs())
+        return build_sdk_client(
+            lambda: AsyncOpenAI(base_url=self._base_url, api_key=self._sdk_key(), **self._transport_kwargs()),
+            provider=self._provider,
+        )
 
     def __repr__(self) -> str:   # one class serves three providers; show which
         return f"OpenAICompatibleClient(provider={self._provider!r}, model={self.model!r})"
@@ -146,6 +161,7 @@ class OpenAICompatibleClient(_BaseClient):
     def stream(self, prompt: str, *, system: str | None = None) -> Iterator[str]:
         request = self._make_request(self._make_messages(prompt, system), json_mode=False)
         request["stream"] = True
+        failure = None
         try:
             # The SDK stream owns the HTTP connection and is a context manager; `with`
             # releases it on an early break or a consumer exception. `Any`: the streamed
@@ -158,11 +174,14 @@ class OpenAICompatibleClient(_BaseClient):
                     if delta:
                         yield delta
         except self._stream_errors as err:
-            raise self._map_sdk_failure(err, "stream") from err
+            failure = self._map_sdk_failure(err, "stream")
+        if failure is not None:   # raise outside the except: no SDK error chained (its headers hold the key)
+            raise failure
 
     async def astream(self, prompt: str, *, system: str | None = None) -> AsyncIterator[str]:
         request = self._make_request(self._make_messages(prompt, system), json_mode=False)
         request["stream"] = True
+        failure = None
         try:
             sdk_stream: Any = await self._get_aclient().chat.completions.create(**request)
             async with sdk_stream as events:
@@ -171,30 +190,36 @@ class OpenAICompatibleClient(_BaseClient):
                     if delta:
                         yield delta
         except self._stream_errors as err:
-            raise self._map_sdk_failure(err, "stream") from err
+            failure = self._map_sdk_failure(err, "stream")
+        if failure is not None:
+            raise failure
 
     def embed(self, texts: Sequence[str], *, model: str | None = None) -> list[list[float]]:
         """Return one embedding vector per input text (empty input -> empty list, no call).
         Raises ``LLMError`` if the API call fails or a reply carries no vector."""
-        text_list = list(texts)
+        text_list = _as_text_list(texts)
         if not text_list:
             return []   # one vector per input; zero inputs -> zero vectors, not an error
         try:
             response = self._client.embeddings.create(model=model or self._embed_model, input=text_list)
         except self._sdk_error as err:
-            raise self._map_sdk_failure(err, "embedding") from err
-        return _extract_embedding_vectors(response)
+            failure = self._map_sdk_failure(err, "embedding")
+        else:
+            return _extract_embedding_vectors(response)
+        raise failure
 
     async def aembed(self, texts: Sequence[str], *, model: str | None = None) -> list[list[float]]:
         """Async twin of ``embed``."""
-        text_list = list(texts)
+        text_list = _as_text_list(texts)
         if not text_list:
             return []
         try:
             response = await self._get_aclient().embeddings.create(model=model or self._embed_model, input=text_list)
         except self._sdk_error as err:
-            raise self._map_sdk_failure(err, "embedding") from err
-        return _extract_embedding_vectors(response)
+            failure = self._map_sdk_failure(err, "embedding")
+        else:
+            return _extract_embedding_vectors(response)
+        raise failure
 
     # Native JSON mode where the endpoint honours it, else the base's prompt-steered path.
     def _text_for_parse(self, prompt: str, system: str) -> str:
@@ -207,15 +232,19 @@ class OpenAICompatibleClient(_BaseClient):
         try:
             response = self._client.chat.completions.create(**self._make_request(messages, json_mode=json_mode))
         except self._sdk_error as err:
-            raise self._map_sdk_failure(err, "completion") from err
-        return _extract_chat_text(response)
+            failure = self._map_sdk_failure(err, "completion")
+        else:
+            return _extract_chat_text(response)
+        raise failure   # outside the except: the SDK error (key in its request headers/frame) is not chained
 
     async def _achat(self, messages: list[dict[str, str]], *, json_mode: bool = False) -> str:
         try:
             response = await self._get_aclient().chat.completions.create(**self._make_request(messages, json_mode=json_mode))
         except self._sdk_error as err:
-            raise self._map_sdk_failure(err, "completion") from err
-        return _extract_chat_text(response)
+            failure = self._map_sdk_failure(err, "completion")
+        else:
+            return _extract_chat_text(response)
+        raise failure
 
     def _make_request(self, messages: list[dict[str, str]], *, json_mode: bool) -> dict[str, object]:
         request: dict[str, object] = {"model": self.model, "messages": messages}
@@ -239,12 +268,17 @@ class OpenAICompatibleClient(_BaseClient):
 
 def _make_openai_client(
     provider: str, *, model: str | None = None, api_key: str | None = None,
-    max_tokens: int | None = None, temperature: float | None = None,
-    top_p: float | None = None, timeout: float | None = None,
-    max_retries: int | None = None,
+    base_url: str | None = None, max_tokens: int | None = None,
+    temperature: float | None = None, top_p: float | None = None,
+    timeout: float | None = None, max_retries: int | None = None,
 ) -> OpenAICompatibleClient:
     """Construct one of the OpenAI-compatible clients (openai / gemini / ollama) by name.
     Each setting is sent only when set; when None the provider's own default stands.
+
+    ``base_url`` (when given) points the client at a gateway/proxy/Azure endpoint. When None,
+    a fixed official endpoint is pinned per provider so the SDK does NOT read ``OPENAI_BASE_URL``
+    from the environment -- an attacker with env-write but no read of the 0600 key store could
+    otherwise redirect the resolved key to their host.
 
     Raises:
         UnknownProviderError: ``provider`` is not an OpenAI-compatible provider.
@@ -263,10 +297,15 @@ def _make_openai_client(
             f"no API key for {provider}: pass api_key=, set {keys.ENV_BY_PROVIDER[provider]}, "
             f"or run 'thinchat set {provider}'"
         )
-    base_url = _ollama_base_url() if spec.is_local else spec.base_url
+    # Explicit override wins; else a fixed endpoint (ollama from OLLAMA_HOST; every other
+    # provider a pinned official URL) so base_url is never None -> the SDK never reads its
+    # own *_BASE_URL env var.
+    effective_base_url = base_url or (
+        _ollama_base_url() if spec.is_local else (spec.base_url or _OPENAI_BASE_URL)
+    )
     return OpenAICompatibleClient(
         provider        = provider,
-        base_url        = base_url,
+        base_url        = effective_base_url,
         api_key         = key,   # a Secret, or None for ollama; the client reveals it only for the SDK
         model           = model or spec.chat_model,
         embed_model     = spec.embed_model,
@@ -308,6 +347,16 @@ def _extract_stream_text(chunk: object) -> str | None:
         return None
     delta = getattr(getattr(choices[0], "delta", None), "content", None)
     return delta if isinstance(delta, str) else None
+
+
+def _as_text_list(texts: Sequence[str]) -> list[str]:
+    """The inputs as a list, rejecting a bare ``str``. A ``str`` *is* a ``Sequence[str]`` (of its
+    own characters), so ``embed("hello")`` would silently request one embedding per character and
+    bill for five vectors nobody wanted. A wrong-typed argument is a caller bug, so this is a
+    ``TypeError`` -- not a ThinchatError the caller catches as an operational failure."""
+    if isinstance(texts, str):
+        raise TypeError("embed expects a sequence of strings, not a single string; pass [text]")
+    return list(texts)
 
 
 def _extract_embedding_vectors(response: object) -> list[list[float]]:

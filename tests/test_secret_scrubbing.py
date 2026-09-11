@@ -1,11 +1,16 @@
-"""The API key never rides out in an LLM error message or its chained cause.
+"""The API key never rides out in an LLM error message or through a chained cause.
 
-A provider SDK error can embed the request -- and a provider that puts the key in a URL would
-put it in the error string; our failure mapping interpolates ``str(err)`` and re-raises
-``from err``, so without scrubbing a caller that logs the exception would print the key. These
-provoke each SDK's error paths -- completion, streaming, embedding, rate-limit, sync and async
--- and assert the key is absent from the message and the whole cause chain.
+A provider SDK error carries the key in two places our scrubbing cannot reach: the request
+headers (``Authorization`` / ``x-api-key``) and the SDK's own frame-locals. So the failure
+mapping does NOT chain the SDK error: it builds an ``LLMError`` from a scrubbed ``str(err)``
+holding no reference to the SDK error, and each verb raises it OUTSIDE its ``except`` block,
+leaving ``__cause__`` and ``__context__`` both ``None`` -- the key-bearing SDK error is
+unreachable from what the caller catches. These provoke each SDK's error paths -- completion,
+streaming, embedding, rate-limit, sync and async -- and assert the key is absent from the
+message, and that the chain is severed rather than merely scrubbed in place.
 """
+
+import types
 
 import pytest
 
@@ -112,14 +117,36 @@ def test_an_anthropic_stream_error_scrubs_the_key(monkeypatch):
     _assert_secret_absent(_TEST_API_KEY, exc_info.value)
 
 
-def test_the_chained_cause_is_scrubbed_in_place(monkeypatch):
+def test_the_sdk_error_is_severed_not_chained(monkeypatch):
+    # The mapped LLMError must NOT chain the SDK error: chaining would keep the SDK error
+    # (and the key in its request headers / frame) reachable from what the caller catches and
+    # printable by any traceback. Prove the chain is cut -- __cause__ and __context__ both None.
     sdk_error = FakeOpenAIError(f"transport failed: https://api/x?key={_TEST_API_KEY}")
     install_openai(monkeypatch, error=sdk_error)
     client = make_client("openai", api_key=_TEST_API_KEY)
     with pytest.raises(LLMError) as exc_info:
         client.complete("hi")
-    assert exc_info.value.__cause__ is sdk_error
-    assert _TEST_API_KEY not in str(sdk_error)
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__context__ is None
+    assert _TEST_API_KEY not in str(exc_info.value)
+
+
+def test_a_key_in_the_sdk_error_request_headers_is_unreachable(monkeypatch):
+    # The real leak vector: the SDK error carries the key in request.headers['Authorization'],
+    # which scrub_exception does NOT rewrite. Severance is what protects it -- with the chain
+    # cut, the header-bearing SDK error is simply not reachable from the raised LLMError. Walk
+    # the caught error's whole cause/context chain and assert the key appears nowhere in it.
+    sdk_error = FakeOpenAIError("401 Unauthorized")
+    request = types.SimpleNamespace(headers={"Authorization": f"Bearer {_TEST_API_KEY}"})
+    sdk_error.request = request  # type: ignore[attr-defined]  # the SDK hangs the key-bearing request off the error
+    install_openai(monkeypatch, error=sdk_error)
+    client = make_client("openai", api_key=_TEST_API_KEY)
+    with pytest.raises(LLMError) as exc_info:
+        client.complete("hi")
+    assert exc_info.value.__cause__ is None and exc_info.value.__context__ is None
+    _assert_secret_absent(_TEST_API_KEY, exc_info.value)
+    # and the header on the original SDK error is what would have leaked had it been chained
+    assert _TEST_API_KEY in request.headers["Authorization"]
 
 
 def test_the_ollama_placeholder_key_is_not_scrubbed(monkeypatch):

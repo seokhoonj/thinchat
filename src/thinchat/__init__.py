@@ -18,9 +18,14 @@ works out of the box; each SDK is imported lazily when you first construct its c
 
 from importlib.metadata import PackageNotFoundError, version
 
+from credbox import (
+    Secret,  # re-exported: get_api_key returns one, so callers need not import credbox
+)
+
 from thinchat.claude_client import ClaudeClient
 from thinchat.client import Capability, Client, Provider
 from thinchat.errors import (
+    BlankKeyError,
     CredentialStoreError,
     LLMError,
     ProviderUnavailableError,
@@ -35,6 +40,7 @@ from thinchat.providers import PROVIDERS, make_client
 
 __all__ = [
     "PROVIDERS",
+    "BlankKeyError",
     "Capability",
     "ClaudeClient",
     "Client",
@@ -44,6 +50,7 @@ __all__ = [
     "OpenAICompatibleClient",
     "Provider",
     "ProviderUnavailableError",
+    "Secret",
     "ThinchatError",
     "UnknownProviderError",
     "UnsupportedError",

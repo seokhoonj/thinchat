@@ -14,15 +14,40 @@ from __future__ import annotations
 import inspect
 import math
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Iterator, Sequence
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from typing import Any, Literal, Protocol, Self, runtime_checkable
 
 from credbox import Secret, scrub_exception, scrub_secrets
 
-from thinchat.errors import LLMError, RateLimitError, UnsupportedError
+from thinchat.errors import (
+    LLMError,
+    ProviderUnavailableError,
+    RateLimitError,
+    UnsupportedError,
+)
 from thinchat.structured_output import make_json_instruction, parse_json
 
 __all__ = ["Capability", "Client", "Provider"]
+
+
+def build_sdk_client(build: Callable[[], Any], *, provider: str) -> Any:
+    """Construct a vendor SDK client, converting ANY construction failure into a content-free
+    ``ProviderUnavailableError`` raised from a clean frame.
+
+    The vendor constructor takes the revealed API key as an argument, so its own ``__init__``
+    frame holds the plaintext key; a construction failure (e.g. a malformed ``ALL_PROXY`` that
+    makes httpx reject the transport URL) would otherwise escape with that key live in a
+    traceback frame, disclosed by any frame-dumping excepthook (Sentry / cgitb / rich). We
+    cannot scrub the SDK's own frame-locals, so we SEVER the chain: capture only the exception's
+    type name (never the object, never a bound reference that keeps its traceback alive), let the
+    ``except`` block end (dropping the SDK frame), and raise OUTSIDE it -- so ``__cause__`` and
+    ``__context__`` are both ``None`` and the key-bearing frame is unreachable."""
+    error_name = None
+    try:
+        return build()
+    except Exception as err:   # not BaseException: spare KeyboardInterrupt / asyncio.CancelledError
+        error_name = type(err).__name__   # a type name carries no secret; the object is dropped here
+    raise ProviderUnavailableError(f"could not build the {provider} client ({error_name})")
 
 # The four providers thinchat speaks to, as a closed type. The public boundary
 # (``make_client``) still takes a runtime ``str`` (a config value is not a Literal) and
@@ -122,12 +147,15 @@ class _BaseClient(ABC):
         """Map a caught SDK error to a rate-limit error with any requested wait, or a plain
         API failure. ``action`` names the failed completion, embedding, or stream.
 
-        The API key is scrubbed first: our message interpolates ``str(err)`` and the caller
-        re-raises ``from err``, so a provider whose error text carries the key would otherwise
-        leak it into our message and the printed cause chain. credbox's scrubber cleans the
-        chain in place (args and a transport error's URL); ``scrub_secrets`` also cleans the
-        rendered message we build, in case ``str(err)`` renders something other than ``args``.
-        A provider with no secret (ollama) has ``_secret_key`` None, so nothing is redacted."""
+        The returned error holds NO reference to ``err`` -- only a scrubbed string and a numeric
+        ``retry_after`` -- so the caller can raise it OUTSIDE its ``except`` block (never
+        ``from err``), leaving ``__cause__``/``__context__`` ``None``. That severance is what
+        keeps the key off the traceback: the SDK error carries the key in ``err.request.headers``
+        (``Authorization`` / ``x-api-key``) and in its own frame-locals, which ``scrub_exception``
+        cannot reach -- so we drop the whole chain rather than try to scrub those. ``scrub_secrets``
+        still cleans the rendered ``str(err)`` we interpolate (a provider that echoes the key in
+        its message text); ``scrub_exception`` on ``err`` is belt-and-suspenders before it is
+        dropped. A keyless provider (ollama) has ``_secret_key`` None, so nothing is redacted."""
         secrets = [self._secret_key] if self._secret_key is not None else []
         scrub_exception(err, secrets)
         scrubbed_detail = scrub_secrets(str(err), secrets)

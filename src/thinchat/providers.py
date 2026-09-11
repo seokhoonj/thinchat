@@ -27,9 +27,9 @@ class _ClientFactory(Protocol):
 
     def __call__(
         self, *, model: str | None = None, api_key: str | None = None,
-        max_tokens: int | None = None, temperature: float | None = None,
-        top_p: float | None = None, timeout: float | None = None,
-        max_retries: int | None = None,
+        base_url: str | None = None, max_tokens: int | None = None,
+        temperature: float | None = None, top_p: float | None = None,
+        timeout: float | None = None, max_retries: int | None = None,
     ) -> Client: ...
 
 
@@ -49,9 +49,9 @@ PROVIDERS: tuple[Provider, ...] = tuple(_FACTORY_BY_PROVIDER)
 
 def make_client(
     provider: str, *, model: str | None = None, api_key: str | None = None,
-    max_tokens: int | None = None, temperature: float | None = None,
-    top_p: float | None = None, timeout: float | None = None,
-    max_retries: int | None = None,
+    base_url: str | None = None, max_tokens: int | None = None,
+    temperature: float | None = None, top_p: float | None = None,
+    timeout: float | None = None, max_retries: int | None = None,
 ) -> Client:
     """Construct the client for ``provider`` (one of ``PROVIDERS``). ``model`` overrides the
     provider's default model; ``api_key`` overrides the environment key (for tests, or a
@@ -61,6 +61,11 @@ def make_client(
     only when set (None leaves the provider's own default in place -- except ``max_tokens``,
     which claude requires and so falls back to a default there):
 
+    - ``base_url`` points the client at a gateway/proxy/Azure endpoint. When None, each
+      provider pins its official endpoint, so the vendor SDK never reads its ``*_BASE_URL``
+      environment variable -- an attacker who can only write the environment (not read the
+      0600 key store) cannot redirect the resolved key to their host. (ollama is keyless, so
+      it has no key to leak; when ``base_url`` is None it defaults to ``OLLAMA_HOST``.)
     - ``max_tokens`` caps the reply length (a positive integer).
     - ``temperature`` / ``top_p`` steer sampling; they go in the request.
     - ``timeout`` (seconds) and ``max_retries`` configure the HTTP client -- how long to
@@ -77,6 +82,6 @@ def make_client(
         )
     factory = _FACTORY_BY_PROVIDER[provider]   # `provider` narrowed to a known key by the check above
     return factory(
-        model=model, api_key=api_key, max_tokens=max_tokens, temperature=temperature,
-        top_p=top_p, timeout=timeout, max_retries=max_retries,
+        model=model, api_key=api_key, base_url=base_url, max_tokens=max_tokens,
+        temperature=temperature, top_p=top_p, timeout=timeout, max_retries=max_retries,
     )

@@ -3,8 +3,10 @@
 A thin shell over ``thinchat.keys`` -- it parses ``argv``, calls the credential functions,
 and renders for a human; no resolution logic lives here. Keys are identified by provider name
 (``thinchat set claude``), matching the ``make_client`` roster, and stored via credbox in
-``~/.config/thinchat/credentials.json`` (mode 0600). A key value is never printed: ``set``
-reads it with ``getpass``, ``get`` masks it, and ``list`` shows only which providers are set.
+``~/.config/thinchat/credentials.json`` (mode 0600). The full key value is never printed:
+``set`` reads it with ``getpass`` (no echo), ``get`` shows it partially masked (only the
+edges, or ``***`` when it is too short to show edges without revealing most of it), and
+``list`` shows only which providers are set, never a value.
 """
 
 from __future__ import annotations
