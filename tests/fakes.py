@@ -53,14 +53,17 @@ class _Message:
 
 
 class _Choice:
-    def __init__(self, *, content=None, delta=None):
-        self.message = _Message(content)
-        self.delta   = _Message(delta)
+    def __init__(self, *, content=None, delta=None, finish_reason="stop"):
+        self.message       = _Message(content)
+        self.delta         = _Message(delta)
+        self.finish_reason = finish_reason
 
 
 class _Completion:
-    def __init__(self, content):
-        self.choices = [_Choice(content=content)]
+    def __init__(self, content, *, finish_reason="stop", usage=None, model="fake-openai-model"):
+        self.choices = [_Choice(content=content, finish_reason=finish_reason)]
+        self.usage   = usage if usage is not None else types.SimpleNamespace(prompt_tokens=7, completion_tokens=11)
+        self.model   = model
 
 
 class _Chunk:
@@ -139,6 +142,7 @@ class _AsyncStream:
 
 def install_openai(monkeypatch, *, content="hi", chunks=("a", "b"),
                    vectors=None, completion=None, embedding=None,
+                   finish_reason="stop", usage=None, model="fake-openai-model",
                    error=None, stream_error_after=None, stream_exc=None, stream_sink=None,
                    close_calls=None, capture=None, client_capture=None, aclient_builds=None,
                    aclient_capture=None, client_error=None):
@@ -175,7 +179,8 @@ def install_openai(monkeypatch, *, content="hi", chunks=("a", "b"),
             raise error
         if kwargs.get("stream"):
             return _open_stream(_SyncStream)
-        return completion if completion is not None else _Completion(content)
+        return completion if completion is not None else _Completion(
+            content, finish_reason=finish_reason, usage=usage, model=model)
 
     def _embed(**kwargs):
         _record(kwargs)
@@ -189,7 +194,8 @@ def install_openai(monkeypatch, *, content="hi", chunks=("a", "b"),
             raise error
         if kwargs.get("stream"):
             return _open_stream(_AsyncStream)
-        return completion if completion is not None else _Completion(content)
+        return completion if completion is not None else _Completion(
+            content, finish_reason=finish_reason, usage=usage, model=model)
 
     async def _aembed(**kwargs):
         _record(kwargs)
@@ -244,8 +250,11 @@ class _TextBlock:
 
 
 class _AnthropicMessage:
-    def __init__(self, blocks):
-        self.content = blocks
+    def __init__(self, blocks, *, stop_reason="end_turn", usage=None, model="fake-claude-model"):
+        self.content     = blocks
+        self.stop_reason = stop_reason
+        self.usage       = usage if usage is not None else types.SimpleNamespace(input_tokens=7, output_tokens=11)
+        self.model       = model
 
 
 class _StreamCtx:
@@ -299,6 +308,7 @@ class _AsyncStreamCtx:
 
 
 def install_anthropic(monkeypatch, *, content="hi", blocks=None, chunks=("a", "b"),
+                      stop_reason="end_turn", usage=None, model="fake-claude-model",
                       error=None, stream_error_after=None, stream_exc=None, stream_sink=None,
                       close_calls=None, capture=None, client_capture=None, aclient_builds=None,
                       aclient_capture=None, client_error=None):
@@ -329,7 +339,7 @@ def install_anthropic(monkeypatch, *, content="hi", blocks=None, chunks=("a", "b
         if error is not None:
             raise error
         content_blocks = blocks if blocks is not None else [_TextBlock(content)]
-        return _AnthropicMessage(content_blocks)
+        return _AnthropicMessage(content_blocks, stop_reason=stop_reason, usage=usage, model=model)
 
     async def _acreate(**kwargs):
         return _create(**kwargs)

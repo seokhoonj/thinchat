@@ -50,6 +50,16 @@ for chunk in make_client("claude").stream("가을에 대한 짧은 시 하나 �
 vectors = make_client("openai").embed(["강아지", "고양이"])
 ```
 
+`complete`는 `Completion`을 돌려줍니다 — 그냥 텍스트로 쓸 수 있는 `str`이면서, 답이 토큰
+상한에 걸려 잘렸는지까지 알 수 있게 메타데이터도 함께 담습니다:
+
+```python
+reply = make_client("claude", max_tokens=50).complete("강에 대한 긴 글을 써줘.")
+print(reply)                       # str: 출력·슬라이싱·비교 모두 문자열처럼
+if reply.truncated:                # 답이 토큰 상한에 걸려 잘렸으면 True
+    print(f"잘림; 토큰 {reply.usage.output_tokens}개 생성")   # .finish_reason / .usage / .model
+```
+
 모든 verb에는 async 짝이 있습니다 — `acomplete`, `astream`, `aparse`, `aembed`:
 
 ```python
@@ -209,7 +219,8 @@ SDK 위의 단일 클래스를 공유하고(데이터만 다름), claude는 anth
 ## 8. 범위와 안정성
 
 thinchat은 의도적으로 **단일 턴(single-turn) completion** 클라이언트입니다: 각 호출은 하나의
-`prompt`와 선택적 `system`을 받아 답을 평문(또는 JSON 객체·벡터)으로 돌려줍니다. 멀티턴 대화
+`prompt`와 선택적 `system`을 받아 답을 텍스트(`Completion` — `.finish_reason`/`.truncated`/
+`.usage`/`.model`도 담은 `str`)로, 또는 JSON 객체·벡터로 돌려줍니다. 멀티턴 대화
 기록, tool/function calling, 토큰·사용량·비용 리포팅, 비전 등 멀티모달 입력, provider별 요청
 필드는 **다루지 않습니다** — 그런 경우 provider SDK를 직접 쓰세요. `parse()`는 답을 schema
 방향으로 유도할 뿐 강제하지는 않으며(§2), `embed()`에 리스트가 아니라 단일 문자열을 주면

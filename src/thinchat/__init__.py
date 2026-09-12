@@ -37,6 +37,7 @@ from thinchat.errors import (
 from thinchat.keys import get_api_key, set_api_key, stored_providers, unset_api_key
 from thinchat.openai_client import OpenAICompatibleClient
 from thinchat.providers import PROVIDERS, make_client
+from thinchat.results import Completion, Usage
 
 __all__ = [
     "PROVIDERS",
@@ -44,6 +45,7 @@ __all__ = [
     "Capability",
     "ClaudeClient",
     "Client",
+    "Completion",
     "CredentialStoreError",
     "LLMError",
     "RateLimitError",
@@ -54,6 +56,7 @@ __all__ = [
     "ThinchatError",
     "UnknownProviderError",
     "UnsupportedError",
+    "Usage",
     "get_api_key",
     "make_client",
     "set_api_key",

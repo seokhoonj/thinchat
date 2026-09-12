@@ -32,6 +32,21 @@ async def test_acomplete_returns_the_reply_text(monkeypatch):
     assert await _client(monkeypatch, content="hi").acomplete("q") == "hi"
 
 
+def test_complete_returns_a_completion_with_metadata(monkeypatch):
+    from thinchat import Completion
+    result = _client(monkeypatch, content="hi", stop_reason="end_turn", model="claude-fake").complete("q")
+    assert isinstance(result, Completion) and result == "hi"   # still a str
+    assert result.finish_reason == "end_turn" and result.truncated is False
+    assert result.model == "claude-fake"
+    assert result.usage is not None and result.usage.input_tokens == 7
+
+
+def test_complete_flags_a_truncated_reply(monkeypatch):
+    # Anthropic signals a token-cap cutoff with stop_reason="max_tokens".
+    result = _client(monkeypatch, content="cut", stop_reason="max_tokens").complete("q")
+    assert result.truncated is True and result.finish_reason == "max_tokens"
+
+
 def test_system_goes_to_its_own_field(monkeypatch):
     seen: dict[str, object] = {}
     install_anthropic(monkeypatch, capture=seen)

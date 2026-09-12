@@ -17,6 +17,7 @@ from credbox import Secret
 import thinchat.keys as keys
 from thinchat.client import Capability, _BaseClient, build_sdk_client
 from thinchat.errors import LLMError, ProviderUnavailableError
+from thinchat.results import Completion, Usage, _as_int
 
 __all__ = ["ClaudeClient"]
 
@@ -106,22 +107,22 @@ class ClaudeClient(_BaseClient):
             provider="claude",
         )
 
-    def complete(self, prompt: str, *, system: str | None = None) -> str:
+    def complete(self, prompt: str, *, system: str | None = None) -> Completion:
         try:
             response = self._client.messages.create(**self._make_request(prompt, system))
         except self._sdk_error as err:
             failure = self._map_sdk_failure(err, "completion")
         else:
-            return _extract_message_text(response)
+            return _completion_from_message(response)
         raise failure   # outside the except: the SDK error (key in its request headers/frame) is not chained
 
-    async def acomplete(self, prompt: str, *, system: str | None = None) -> str:
+    async def acomplete(self, prompt: str, *, system: str | None = None) -> Completion:
         try:
             response = await self._get_aclient().messages.create(**self._make_request(prompt, system))
         except self._sdk_error as err:
             failure = self._map_sdk_failure(err, "completion")
         else:
-            return _extract_message_text(response)
+            return _completion_from_message(response)
         raise failure
 
     def stream(self, prompt: str, *, system: str | None = None) -> Iterator[str]:
@@ -211,3 +212,23 @@ def _extract_message_text(response: object) -> str:
     if not text:
         raise LLMError("claude reply carried no text block")
     return text
+
+
+def _completion_from_message(response: object) -> Completion:
+    """Build a ``Completion`` from a Messages response: the validated text plus the stop reason,
+    token usage, and model where present (all read defensively)."""
+    text = _extract_message_text(response)
+    stop = getattr(response, "stop_reason", None)
+    usage_obj = getattr(response, "usage", None)
+    usage = Usage(
+        input_tokens=_as_int(getattr(usage_obj, "input_tokens", None)),
+        output_tokens=_as_int(getattr(usage_obj, "output_tokens", None)),
+    ) if usage_obj is not None else None
+    model = getattr(response, "model", None)
+    return Completion(
+        text,
+        finish_reason=stop if isinstance(stop, str) else None,
+        truncated=(stop == "max_tokens"),   # Anthropic signals a token-cap cutoff with "max_tokens"
+        usage=usage,
+        model=model if isinstance(model, str) else None,
+    )

@@ -19,6 +19,7 @@ from credbox import Secret
 import thinchat.keys as keys
 from thinchat.client import Capability, _BaseClient, build_sdk_client
 from thinchat.errors import LLMError, ProviderUnavailableError, UnknownProviderError
+from thinchat.results import Completion, Usage, _as_int
 
 __all__ = ["OpenAICompatibleClient"]
 
@@ -171,10 +172,10 @@ class OpenAICompatibleClient(_BaseClient):
     def __repr__(self) -> str:   # one class serves three providers; show which
         return f"OpenAICompatibleClient(provider={self._provider!r}, model={self.model!r})"
 
-    def complete(self, prompt: str, *, system: str | None = None) -> str:
+    def complete(self, prompt: str, *, system: str | None = None) -> Completion:
         return self._chat(self._make_messages(prompt, system))
 
-    async def acomplete(self, prompt: str, *, system: str | None = None) -> str:
+    async def acomplete(self, prompt: str, *, system: str | None = None) -> Completion:
         return await self._achat(self._make_messages(prompt, system))
 
     def stream(self, prompt: str, *, system: str | None = None) -> Iterator[str]:
@@ -247,22 +248,22 @@ class OpenAICompatibleClient(_BaseClient):
     async def _atext_for_parse(self, prompt: str, system: str) -> str:
         return await self._achat(self._make_messages(prompt, system), json_mode=self._has_native_json)
 
-    def _chat(self, messages: list[dict[str, str]], *, json_mode: bool = False) -> str:
+    def _chat(self, messages: list[dict[str, str]], *, json_mode: bool = False) -> Completion:
         try:
             response = self._client.chat.completions.create(**self._make_request(messages, json_mode=json_mode))
         except self._sdk_error as err:
             failure = self._map_sdk_failure(err, "completion")
         else:
-            return _extract_chat_text(response)
+            return _completion_from_chat(response)
         raise failure   # outside the except: the SDK error (key in its request headers/frame) is not chained
 
-    async def _achat(self, messages: list[dict[str, str]], *, json_mode: bool = False) -> str:
+    async def _achat(self, messages: list[dict[str, str]], *, json_mode: bool = False) -> Completion:
         try:
             response = await self._get_aclient().chat.completions.create(**self._make_request(messages, json_mode=json_mode))
         except self._sdk_error as err:
             failure = self._map_sdk_failure(err, "completion")
         else:
-            return _extract_chat_text(response)
+            return _completion_from_chat(response)
         raise failure
 
     def _make_request(self, messages: list[dict[str, str]], *, json_mode: bool) -> dict[str, object]:
@@ -361,6 +362,27 @@ def _extract_chat_text(response: object) -> str:
     if not isinstance(text, str) or not text.strip():   # blank reply is empty, like Claude's
         raise LLMError("completion returned an empty reply")
     return text
+
+
+def _completion_from_chat(response: object) -> Completion:
+    """Build a ``Completion`` from a chat-completions response: the validated text plus the stop
+    reason, token usage, and model where the response reports them (all read defensively)."""
+    text = _extract_chat_text(response)
+    choices = getattr(response, "choices", None)
+    finish = getattr(choices[0], "finish_reason", None) if isinstance(choices, (list, tuple)) and choices else None
+    usage_obj = getattr(response, "usage", None)
+    usage = Usage(
+        input_tokens=_as_int(getattr(usage_obj, "prompt_tokens", None)),
+        output_tokens=_as_int(getattr(usage_obj, "completion_tokens", None)),
+    ) if usage_obj is not None else None
+    model = getattr(response, "model", None)
+    return Completion(
+        text,
+        finish_reason=finish if isinstance(finish, str) else None,
+        truncated=(finish == "length"),   # OpenAI signals a token-cap cutoff with "length"
+        usage=usage,
+        model=model if isinstance(model, str) else None,
+    )
 
 
 def _extract_stream_text(chunk: object) -> str | None:

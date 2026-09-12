@@ -50,6 +50,16 @@ for chunk in make_client("claude").stream("Count to five."):
 vectors = make_client("openai").embed(["hello", "world"])
 ```
 
+`complete` returns a `Completion` — a `str` you can use directly as text that *also* carries the
+reply's metadata, so you can tell a finished reply from one cut off at the token cap:
+
+```python
+reply = make_client("claude", max_tokens=50).complete("Write a long essay on rivers.")
+print(reply)                       # a str: prints, slices, compares like any string
+if reply.truncated:                # True when the reply hit the token cap
+    print(f"cut off; produced {reply.usage.output_tokens} tokens")   # .finish_reason / .usage / .model
+```
+
 Every verb has an async twin — `acomplete`, `astream`, `aparse`, `aembed`:
 
 ```python
@@ -214,7 +224,8 @@ to `LLMError`, using `RateLimitError` for a 429 after the SDK's retries.
 ## 8. Scope & stability
 
 thinchat is intentionally a **single-turn completion** client: each call takes one `prompt` plus
-an optional `system` and returns the reply as plain text (or a JSON object / vectors). It does
+an optional `system` and returns the reply as text (a `Completion`, a `str` that also carries
+`.finish_reason` / `.truncated` / `.usage` / `.model`) — or a JSON object / vectors. It does
 **not** cover multi-turn conversation history, tool/function calling, token/usage & cost
 reporting, vision or other multimodal input, or provider-specific request fields — for those,
 use the provider SDK directly. `parse()` steers the reply toward your schema but does not enforce

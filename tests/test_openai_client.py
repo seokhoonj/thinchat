@@ -32,6 +32,22 @@ async def test_acomplete_returns_the_reply_text(monkeypatch):
     assert await _client(monkeypatch, content="hello").acomplete("hi") == "hello"
 
 
+def test_complete_returns_a_completion_with_metadata(monkeypatch):
+    from thinchat import Completion
+    result = _client(monkeypatch, content="hi there", finish_reason="stop",
+                     model="gpt-4o-mini-fake").complete("q")
+    assert isinstance(result, Completion) and result == "hi there"   # still a str
+    assert result.finish_reason == "stop" and result.truncated is False
+    assert result.model == "gpt-4o-mini-fake"
+    assert result.usage is not None and result.usage.output_tokens == 11
+
+
+def test_complete_flags_a_truncated_reply(monkeypatch):
+    # OpenAI signals a token-cap cutoff with finish_reason="length".
+    result = _client(monkeypatch, content="cut off", finish_reason="length").complete("q")
+    assert result.truncated is True and result.finish_reason == "length"
+
+
 def test_sends_system_then_user_messages(monkeypatch):
     seen: dict[str, object] = {}
     install_openai(monkeypatch, capture=seen)
