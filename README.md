@@ -86,34 +86,32 @@ asyncio.run(main())
 
 ## 3. API keys
 
-thinchat resolves a provider's key from three places. **Which to use:** for a persistent local
-setup, save it once with `thinchat set` — the 0600 store is the leak-safer default (no key in a
-shell profile), and this shared store is the reason the tool exists; for a container or CI, set
-the `<PROVIDER>_API_KEY` environment variable; when your app manages its own secrets, pass
-`api_key=`. The methods below are listed in **precedence** order — when more than one is set, the
-earlier wins: `api_key=` → environment → stored file.
+thinchat resolves a provider's key three ways, listed most-recommended first. (When more than one
+is set, precedence runs the other way: `api_key=` > environment > stored file.)
 
-**1. Pass it directly** — a caller managing its own secrets; no file is ever read:
-
-```python
-llm = make_client("claude", api_key="sk-ant-...")
-```
-
-**2. An environment variable** `<PROVIDER>_API_KEY` — best for a shell session, container, or CI:
-
-```sh
-export CLAUDE_API_KEY="sk-ant-..."     # or OPENAI_API_KEY / GEMINI_API_KEY; ollama needs none
-```
-
-**3. Save it once** with the `thinchat` command — written to a 0600 store
-(`~/.config/thinchat/credentials.json`) that every session finds without an export. The full
-value is never printed (`set` reads it without echo; `get` shows it masked, edges only):
+**1. Save it once** with the `thinchat` command — written to a 0600 store
+(`~/.config/thinchat/credentials.json`) that every session finds without an export, so no key sits
+in a shell profile; this shared store is what the tool adds. The full value is never printed
+(`set` reads it without echo; `get` shows it masked, edges only):
 
 ```sh
 thinchat set claude      # prompt for the key (no echo), store it
 thinchat list            # which providers have a stored key
 thinchat get claude      # show the resolved key, masked
 thinchat unset claude    # remove it
+```
+
+**2. An environment variable** `<PROVIDER>_API_KEY` — the standard for a container, CI, or a
+one-off shell session:
+
+```sh
+export CLAUDE_API_KEY="sk-ant-..."     # or OPENAI_API_KEY / GEMINI_API_KEY; ollama needs none
+```
+
+**3. Pass it directly** — when your app manages its own secrets; no file is ever read:
+
+```python
+llm = make_client("claude", api_key="sk-ant-...")
 ```
 
 An environment variable always wins over the stored file, so a container or CI overrides the

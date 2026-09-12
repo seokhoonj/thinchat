@@ -86,33 +86,31 @@ asyncio.run(main())
 
 ## 3. API 키
 
-thinchat은 provider의 키를 세 곳에서 해석합니다. **어느 걸 쓸까:** 로컬 상시 사용이면 `thinchat
-set`으로 한 번 저장 — 0600 저장소가 유출 안전한 기본이고(셸 프로파일에 키를 안 남김), 이 공유
-저장소가 바로 이 도구의 존재 이유입니다; 컨테이너·CI면 `<PROVIDER>_API_KEY` 환경변수; 앱이
-시크릿을 직접 관리하면 `api_key=`. 아래 방법들은 **우선순위** 순서입니다 — 여러 개가 설정되면
-앞의 것이 이깁니다: `api_key=` → 환경변수 → 저장 파일.
+thinchat은 provider의 키를 세 가지 방법으로 해석하며, **권장 순서**로 나열합니다. (여러 개가
+설정되면 우선순위는 반대로: `api_key=` > 환경변수 > 저장 파일.)
 
-**1. 직접 넘기기** — 자체 시크릿을 관리하는 호출자; 파일은 전혀 읽지 않음:
-
-```python
-llm = make_client("claude", api_key="sk-ant-...")
-```
-
-**2. 환경변수** `<PROVIDER>_API_KEY` — 셸 세션·컨테이너·CI에 적합:
-
-```sh
-export CLAUDE_API_KEY="sk-ant-..."     # 또는 OPENAI_API_KEY / GEMINI_API_KEY; ollama는 불필요
-```
-
-**3. 한 번 저장** — `thinchat` 명령으로 0600 저장소(`~/.config/thinchat/credentials.json`)에
-기록하면 export 없이도 모든 세션이 찾습니다. 값 전체는 절대 출력되지 않습니다(`set`은 에코 없이
-입력받고, `get`은 양 끝만 남기고 마스킹):
+**1. 한 번 저장** — `thinchat` 명령으로 0600 저장소(`~/.config/thinchat/credentials.json`)에
+기록하면 export 없이도 모든 세션이 찾아, 셸 프로파일에 키를 남기지 않습니다; 이 공유 저장소가
+이 도구가 더해 주는 부분입니다. 값 전체는 절대 출력되지 않습니다(`set`은 에코 없이 입력받고,
+`get`은 양 끝만 남기고 마스킹):
 
 ```sh
 thinchat set claude      # 키 입력(에코 없음) 후 저장
 thinchat list            # 어떤 provider에 키가 저장됐는지
 thinchat get claude      # 해석된 키를 마스킹해 표시
 thinchat unset claude    # 저장된 키 삭제
+```
+
+**2. 환경변수** `<PROVIDER>_API_KEY` — 컨테이너·CI·일회성 셸 세션의 표준:
+
+```sh
+export CLAUDE_API_KEY="sk-ant-..."     # 또는 OPENAI_API_KEY / GEMINI_API_KEY; ollama는 불필요
+```
+
+**3. 직접 넘기기** — 앱이 자체 시크릿을 관리할 때; 파일은 전혀 읽지 않음:
+
+```python
+llm = make_client("claude", api_key="sk-ant-...")
 ```
 
 환경변수는 항상 저장 파일을 이기므로, 컨테이너나 CI에서는 `<PROVIDER>_API_KEY`만 설정하면 파일
