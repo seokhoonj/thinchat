@@ -119,17 +119,23 @@ class Client(Protocol):
 
     def supports(self, capability: Capability) -> bool: ...
 
-    def complete(self, prompt: str, *, system: str | None = None) -> Completion: ...
-    async def acomplete(self, prompt: str, *, system: str | None = None) -> Completion: ...
+    def complete(self, prompt: str, *, system: str | None = None, model: str | None = None,
+                 extra: dict[str, object] | None = None) -> Completion: ...
+    async def acomplete(self, prompt: str, *, system: str | None = None, model: str | None = None,
+                        extra: dict[str, object] | None = None) -> Completion: ...
 
-    def stream(self, prompt: str, *, system: str | None = None) -> Iterator[str]: ...
-    def astream(self, prompt: str, *, system: str | None = None) -> AsyncIterator[str]: ...
+    def stream(self, prompt: str, *, system: str | None = None, model: str | None = None,
+               extra: dict[str, object] | None = None) -> Iterator[str]: ...
+    def astream(self, prompt: str, *, system: str | None = None, model: str | None = None,
+                extra: dict[str, object] | None = None) -> AsyncIterator[str]: ...
 
     def parse(
-        self, prompt: str, schema: dict[str, object], *, system: str | None = None
+        self, prompt: str, schema: dict[str, object], *, system: str | None = None,
+        model: str | None = None, extra: dict[str, object] | None = None
     ) -> dict[str, object]: ...
     async def aparse(
-        self, prompt: str, schema: dict[str, object], *, system: str | None = None
+        self, prompt: str, schema: dict[str, object], *, system: str | None = None,
+        model: str | None = None, extra: dict[str, object] | None = None
     ) -> dict[str, object]: ...
 
     def embed(self, texts: Sequence[str], *, model: str | None = None) -> list[list[float]]: ...
@@ -198,16 +204,20 @@ class _BaseClient(ABC):
     # --- primitives each client implements natively -------------------------------
 
     @abstractmethod
-    def complete(self, prompt: str, *, system: str | None = None) -> Completion: ...
+    def complete(self, prompt: str, *, system: str | None = None, model: str | None = None,
+                 extra: dict[str, object] | None = None) -> Completion: ...
 
     @abstractmethod
-    async def acomplete(self, prompt: str, *, system: str | None = None) -> Completion: ...
+    async def acomplete(self, prompt: str, *, system: str | None = None, model: str | None = None,
+                        extra: dict[str, object] | None = None) -> Completion: ...
 
     @abstractmethod
-    def stream(self, prompt: str, *, system: str | None = None) -> Iterator[str]: ...
+    def stream(self, prompt: str, *, system: str | None = None, model: str | None = None,
+               extra: dict[str, object] | None = None) -> Iterator[str]: ...
 
     @abstractmethod
-    def astream(self, prompt: str, *, system: str | None = None) -> AsyncIterator[str]: ...
+    def astream(self, prompt: str, *, system: str | None = None, model: str | None = None,
+                extra: dict[str, object] | None = None) -> AsyncIterator[str]: ...
 
     # --- async SDK client: built on first async use --------------------------------
     # The async verbs go through _get_aclient() rather than touching _aclient, so a
@@ -231,29 +241,35 @@ class _BaseClient(ABC):
     # parses the reply, which works on any client that can follow an instruction.
 
     def parse(
-        self, prompt: str, schema: dict[str, object], *, system: str | None = None
+        self, prompt: str, schema: dict[str, object], *, system: str | None = None,
+        model: str | None = None, extra: dict[str, object] | None = None
     ) -> dict[str, object]:
         """Return the reply parsed into a JSON object. ``schema`` guides generation (and, where
         the provider supports it, constrains the reply to a JSON object at the API); the schema
         itself is never enforced or validated locally, so a caller that needs strict conformance
         checks the returned object itself. Raises ``LLMError`` if the reply is not a JSON object."""
-        return parse_json(self._text_for_parse(prompt, _with_schema(system, schema)))
+        return parse_json(self._text_for_parse(prompt, _with_schema(system, schema),
+                                               model=model, extra=extra))
 
     async def aparse(
-        self, prompt: str, schema: dict[str, object], *, system: str | None = None
+        self, prompt: str, schema: dict[str, object], *, system: str | None = None,
+        model: str | None = None, extra: dict[str, object] | None = None
     ) -> dict[str, object]:
         """Async twin of ``parse``."""
-        return parse_json(await self._atext_for_parse(prompt, _with_schema(system, schema)))
+        return parse_json(await self._atext_for_parse(prompt, _with_schema(system, schema),
+                                                      model=model, extra=extra))
 
-    def _text_for_parse(self, prompt: str, system: str) -> str:
+    def _text_for_parse(self, prompt: str, system: str, *, model: str | None = None,
+                        extra: dict[str, object] | None = None) -> str:
         """How ``parse`` gets its raw text. The default just completes with the schema
         folded into the system prompt; a client with native JSON mode overrides this to
         constrain the reply at the API as well."""
-        return self.complete(prompt, system=system)
+        return self.complete(prompt, system=system, model=model, extra=extra)
 
-    async def _atext_for_parse(self, prompt: str, system: str) -> str:
+    async def _atext_for_parse(self, prompt: str, system: str, *, model: str | None = None,
+                               extra: dict[str, object] | None = None) -> str:
         """Async twin of ``_text_for_parse``."""
-        return await self.acomplete(prompt, system=system)
+        return await self.acomplete(prompt, system=system, model=model, extra=extra)
 
     # --- embeddings: refused unless a client overrides ----------------------------
 

@@ -107,38 +107,42 @@ class ClaudeClient(_BaseClient):
             provider="claude",
         )
 
-    def complete(self, prompt: str, *, system: str | None = None) -> Completion:
+    def complete(self, prompt: str, *, system: str | None = None, model: str | None = None,
+                 extra: dict[str, object] | None = None) -> Completion:
         try:
-            response = self._client.messages.create(**self._make_request(prompt, system))
+            response = self._client.messages.create(**self._make_request(prompt, system, model=model, extra=extra))
         except self._sdk_error as err:
             failure = self._map_sdk_failure(err, "completion")
         else:
             return _completion_from_message(response)
         raise failure   # outside the except: the SDK error (key in its request headers/frame) is not chained
 
-    async def acomplete(self, prompt: str, *, system: str | None = None) -> Completion:
+    async def acomplete(self, prompt: str, *, system: str | None = None, model: str | None = None,
+                        extra: dict[str, object] | None = None) -> Completion:
         try:
-            response = await self._get_aclient().messages.create(**self._make_request(prompt, system))
+            response = await self._get_aclient().messages.create(**self._make_request(prompt, system, model=model, extra=extra))
         except self._sdk_error as err:
             failure = self._map_sdk_failure(err, "completion")
         else:
             return _completion_from_message(response)
         raise failure
 
-    def stream(self, prompt: str, *, system: str | None = None) -> Iterator[str]:
+    def stream(self, prompt: str, *, system: str | None = None, model: str | None = None,
+               extra: dict[str, object] | None = None) -> Iterator[str]:
         failure = None
         try:
-            with self._client.messages.stream(**self._make_request(prompt, system)) as events:
+            with self._client.messages.stream(**self._make_request(prompt, system, model=model, extra=extra)) as events:
                 yield from events.text_stream
         except self._stream_errors as err:
             failure = self._map_sdk_failure(err, "stream")
         if failure is not None:   # raise outside the except: no SDK error chained (its headers hold the key)
             raise failure
 
-    async def astream(self, prompt: str, *, system: str | None = None) -> AsyncIterator[str]:
+    async def astream(self, prompt: str, *, system: str | None = None, model: str | None = None,
+                      extra: dict[str, object] | None = None) -> AsyncIterator[str]:
         failure = None
         try:
-            async with self._get_aclient().messages.stream(**self._make_request(prompt, system)) as events:
+            async with self._get_aclient().messages.stream(**self._make_request(prompt, system, model=model, extra=extra)) as events:
                 async for chunk in events.text_stream:
                     yield chunk
         except self._stream_errors as err:
@@ -146,9 +150,10 @@ class ClaudeClient(_BaseClient):
         if failure is not None:
             raise failure
 
-    def _make_request(self, prompt: str, system: str | None) -> dict[str, object]:
+    def _make_request(self, prompt: str, system: str | None, *, model: str | None = None,
+                      extra: dict[str, object] | None = None) -> dict[str, object]:
         request: dict[str, object] = {
-            "model":      self.model,
+            "model":      model or self.model,
             "max_tokens": self._max_tokens,
             "messages":   [{"role": "user", "content": prompt}],
         }
@@ -158,6 +163,8 @@ class ClaudeClient(_BaseClient):
             request["top_p"] = self._top_p
         if system is not None:
             request["system"] = system   # Anthropic takes system as its own field, not a message
+        if extra:
+            request.update(extra)   # provider-specific fields win on collision; caller owns portability
         return request
 
 

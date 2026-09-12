@@ -84,6 +84,40 @@ def test_max_tokens_uses_the_provider_correct_field(monkeypatch, provider, field
     assert other not in seen
 
 
+def test_per_call_model_overrides_the_construction_default(monkeypatch):
+    seen: dict[str, object] = {}
+    install_openai(monkeypatch, capture=seen)
+    make_client("openai", api_key="k", model="gpt-4o-mini").complete("hi", model="gpt-4o")
+    assert seen["model"] == "gpt-4o"   # per-call model wins over the default set at construction
+
+
+def test_per_call_model_applies_to_stream_and_parse(monkeypatch):
+    stream_seen: dict[str, object] = {}
+    install_openai(monkeypatch, capture=stream_seen)
+    list(make_client("openai", api_key="k").stream("hi", model="stream-model"))
+    assert stream_seen["model"] == "stream-model"
+
+    parse_seen: dict[str, object] = {}
+    install_openai(monkeypatch, content='{"ok": true}', capture=parse_seen)
+    make_client("openai", api_key="k").parse("x", {"type": "object"}, model="parse-model")
+    assert parse_seen["model"] == "parse-model"
+
+
+def test_extra_is_splatted_into_the_request(monkeypatch):
+    seen: dict[str, object] = {}
+    install_openai(monkeypatch, capture=seen)
+    make_client("openai", api_key="k").complete("hi", extra={"seed": 42, "logprobs": True})
+    assert seen["seed"] == 42 and seen["logprobs"] is True
+
+
+def test_extra_overrides_a_common_field_on_collision(monkeypatch):
+    # provider-specific fields win, matching the SDK convention (extra takes precedence).
+    seen: dict[str, object] = {}
+    install_openai(monkeypatch, capture=seen)
+    make_client("openai", api_key="k", temperature=0.2).complete("hi", extra={"temperature": 0.9})
+    assert seen["temperature"] == 0.9
+
+
 def test_make_client_forwards_temperature_and_top_p_to_openai(monkeypatch):
     seen: dict[str, object] = {}
     install_openai(monkeypatch, capture=seen)

@@ -227,14 +227,17 @@ thinchat is intentionally a **single-turn completion** client: each call takes o
 an optional `system` and returns the reply as text (a `Completion`, a `str` that also carries
 `.finish_reason` / `.truncated` / `.usage` / `.model`) — or a JSON object / vectors. It does
 **not** cover multi-turn conversation history, tool/function calling, token/usage & cost
-reporting, vision or other multimodal input, or provider-specific request fields — for those,
-use the provider SDK directly. `parse()` steers the reply toward your schema but does not enforce
-it (§2), and `embed()` raises `TypeError` (not a `ThinchatError`) if handed a single string
-instead of a list.
+reporting, or vision / other multimodal input — for those, use the provider SDK directly.
+`parse()` steers the reply toward your schema but does not enforce it (§2), and `embed()` raises
+`TypeError` (not a `ThinchatError`) if handed a single string instead of a list.
 
-The default **model** and `max_tokens` per provider track current provider defaults and are not
-pinned — pass `model=` / `max_tokens=` for reproducibility. `Secret` is re-exported from credbox,
-which governs its masking and `.reveal()`.
+Every verb takes an optional per-call `model=` (overriding the client's default for that call)
+and `extra={...}`, a dict merged into the provider request for one-off provider-specific fields
+(OpenAI `seed`, Anthropic `thinking`, ...) — such fields are provider-specific and are **not**
+translated across providers, and they only reach the request, not the response (the reply is
+still text). The default **model** and `max_tokens` per provider track current provider defaults
+and are not pinned — pass `model=` / `max_tokens=` for reproducibility. `Secret` is re-exported
+from credbox, which governs its masking and `.reveal()`.
 
 Pre-1.0 (0.x): the provider roster and its order, the error hierarchy, the `make_client` and
 key-management signatures, and the `Secret` return type are stable (pinned by tests); the default

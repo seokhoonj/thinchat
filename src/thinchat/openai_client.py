@@ -172,14 +172,18 @@ class OpenAICompatibleClient(_BaseClient):
     def __repr__(self) -> str:   # one class serves three providers; show which
         return f"OpenAICompatibleClient(provider={self._provider!r}, model={self.model!r})"
 
-    def complete(self, prompt: str, *, system: str | None = None) -> Completion:
-        return self._chat(self._make_messages(prompt, system))
+    def complete(self, prompt: str, *, system: str | None = None, model: str | None = None,
+                 extra: dict[str, object] | None = None) -> Completion:
+        return self._chat(self._make_messages(prompt, system), model=model, extra=extra)
 
-    async def acomplete(self, prompt: str, *, system: str | None = None) -> Completion:
-        return await self._achat(self._make_messages(prompt, system))
+    async def acomplete(self, prompt: str, *, system: str | None = None, model: str | None = None,
+                        extra: dict[str, object] | None = None) -> Completion:
+        return await self._achat(self._make_messages(prompt, system), model=model, extra=extra)
 
-    def stream(self, prompt: str, *, system: str | None = None) -> Iterator[str]:
-        request = self._make_request(self._make_messages(prompt, system), json_mode=False)
+    def stream(self, prompt: str, *, system: str | None = None, model: str | None = None,
+               extra: dict[str, object] | None = None) -> Iterator[str]:
+        request = self._make_request(self._make_messages(prompt, system), json_mode=False,
+                                     model=model, extra=extra)
         request["stream"] = True
         failure = None
         try:
@@ -198,8 +202,10 @@ class OpenAICompatibleClient(_BaseClient):
         if failure is not None:   # raise outside the except: no SDK error chained (its headers hold the key)
             raise failure
 
-    async def astream(self, prompt: str, *, system: str | None = None) -> AsyncIterator[str]:
-        request = self._make_request(self._make_messages(prompt, system), json_mode=False)
+    async def astream(self, prompt: str, *, system: str | None = None, model: str | None = None,
+                      extra: dict[str, object] | None = None) -> AsyncIterator[str]:
+        request = self._make_request(self._make_messages(prompt, system), json_mode=False,
+                                     model=model, extra=extra)
         request["stream"] = True
         failure = None
         try:
@@ -242,32 +248,41 @@ class OpenAICompatibleClient(_BaseClient):
         raise failure
 
     # Native JSON mode where the endpoint honours it, else the base's prompt-steered path.
-    def _text_for_parse(self, prompt: str, system: str) -> str:
-        return self._chat(self._make_messages(prompt, system), json_mode=self._has_native_json)
+    def _text_for_parse(self, prompt: str, system: str, *, model: str | None = None,
+                        extra: dict[str, object] | None = None) -> str:
+        return self._chat(self._make_messages(prompt, system), json_mode=self._has_native_json,
+                          model=model, extra=extra)
 
-    async def _atext_for_parse(self, prompt: str, system: str) -> str:
-        return await self._achat(self._make_messages(prompt, system), json_mode=self._has_native_json)
+    async def _atext_for_parse(self, prompt: str, system: str, *, model: str | None = None,
+                               extra: dict[str, object] | None = None) -> str:
+        return await self._achat(self._make_messages(prompt, system), json_mode=self._has_native_json,
+                                 model=model, extra=extra)
 
-    def _chat(self, messages: list[dict[str, str]], *, json_mode: bool = False) -> Completion:
+    def _chat(self, messages: list[dict[str, str]], *, json_mode: bool = False,
+              model: str | None = None, extra: dict[str, object] | None = None) -> Completion:
         try:
-            response = self._client.chat.completions.create(**self._make_request(messages, json_mode=json_mode))
+            response = self._client.chat.completions.create(
+                **self._make_request(messages, json_mode=json_mode, model=model, extra=extra))
         except self._sdk_error as err:
             failure = self._map_sdk_failure(err, "completion")
         else:
             return _completion_from_chat(response)
         raise failure   # outside the except: the SDK error (key in its request headers/frame) is not chained
 
-    async def _achat(self, messages: list[dict[str, str]], *, json_mode: bool = False) -> Completion:
+    async def _achat(self, messages: list[dict[str, str]], *, json_mode: bool = False,
+                     model: str | None = None, extra: dict[str, object] | None = None) -> Completion:
         try:
-            response = await self._get_aclient().chat.completions.create(**self._make_request(messages, json_mode=json_mode))
+            response = await self._get_aclient().chat.completions.create(
+                **self._make_request(messages, json_mode=json_mode, model=model, extra=extra))
         except self._sdk_error as err:
             failure = self._map_sdk_failure(err, "completion")
         else:
             return _completion_from_chat(response)
         raise failure
 
-    def _make_request(self, messages: list[dict[str, str]], *, json_mode: bool) -> dict[str, object]:
-        request: dict[str, object] = {"model": self.model, "messages": messages}
+    def _make_request(self, messages: list[dict[str, str]], *, json_mode: bool,
+                      model: str | None = None, extra: dict[str, object] | None = None) -> dict[str, object]:
+        request: dict[str, object] = {"model": model or self.model, "messages": messages}
         if self._max_tokens is not None:   # optional here, so send it only when set
             # The field name is per-provider data (_ProviderSpec.max_tokens_field): OpenAI's
             # newer models require max_completion_tokens; the compat layers take max_tokens.
@@ -278,6 +293,8 @@ class OpenAICompatibleClient(_BaseClient):
             request["top_p"] = self._top_p
         if json_mode:
             request["response_format"] = {"type": "json_object"}
+        if extra:
+            request.update(extra)   # provider-specific fields win on collision; caller owns portability
         return request
 
     def _make_messages(self, prompt: str, system: str | None) -> list[dict[str, str]]:

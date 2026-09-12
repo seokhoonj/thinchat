@@ -63,6 +63,15 @@ def test_claude_sends_max_tokens_by_default(monkeypatch):
     assert seen["max_tokens"] == 4096
 
 
+def test_per_call_model_and_extra_reach_the_request(monkeypatch):
+    seen: dict[str, object] = {}
+    install_anthropic(monkeypatch, capture=seen)
+    make_client("claude", api_key="k", model="claude-haiku-4-5-20251001").complete(
+        "q", model="claude-opus-4-8", extra={"top_k": 5})
+    assert seen["model"] == "claude-opus-4-8"   # per-call model wins
+    assert seen["top_k"] == 5                    # provider-specific field passed through
+
+
 def test_make_client_forwards_max_tokens_to_claude(monkeypatch):
     seen: dict[str, object] = {}
     install_anthropic(monkeypatch, capture=seen)
