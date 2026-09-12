@@ -7,11 +7,23 @@
 
 **English** | [한국어](README.ko.md)
 
-A thin, unified client for four LLM providers — **claude, openai, gemini, ollama**.
+One interface for four LLM providers — **claude, openai, gemini, ollama** — that treats **not
+leaking your API key** as part of the job.
 
-Name a provider, then call it. Every client offers completion — whole, streamed, or
-JSON-structured — and, where the provider has one, embeddings, each with an async twin. No
-gateway, no router, no cost tracking: just the calls, over the openai and anthropic SDKs.
+Name a provider, then call it: completion (whole, streamed, or JSON-structured) and, where the
+provider has one, embeddings — each with an async twin, over the openai and anthropic SDKs. No
+gateway, no router, no cost tracking — just the calls, plus the parts you'd otherwise hand-roll:
+
+- **Leak-safe keys.** Your key is a credbox `Secret` (masked in logs and tracebacks), revealed
+  only at the SDK call. On a failure, thinchat severs the SDK error's chain and scrubs the
+  message so the key never rides out on a traceback — and it pins each provider's official
+  endpoint, so an environment variable can't redirect a resolved key to another host.
+- **One shared credential store.** `thinchat set claude` saves a key once to a 0600 store that
+  every session — and every sibling tool — resolves from; or just use `<PROVIDER>_API_KEY` from
+  the environment (the library core reads no file unless you ask).
+- **The fiddly bits, handled.** Structured output parses tolerant JSON into a dict; embeddings
+  return one alignment-checked vector per input; `RateLimitError` carries `retry_after`;
+  `supports()` reports a provider's capabilities before you call.
 
 ## 1. Install
 
@@ -28,7 +40,7 @@ client.
 ```python
 from thinchat import make_client
 
-llm = make_client("claude")                     # key from CLAUDE_API_KEY
+llm = make_client("claude")                     # key from CLAUDE_API_KEY (see §3)
 print(llm.complete("Say hi in one word."))
 print(llm.complete("Name a color.", system="Answer in one word."))   # system= steers the generation verbs
 
@@ -72,7 +84,52 @@ async def main():
 asyncio.run(main())
 ```
 
-## 3. Providers
+## 3. API keys
+
+thinchat resolves a provider's key from three places, in order — **`api_key=` → environment →
+stored file** — so use whichever fits.
+
+**1. Pass it directly** — a caller managing its own secrets; no file is ever read:
+
+```python
+llm = make_client("claude", api_key="sk-ant-...")
+```
+
+**2. An environment variable** `<PROVIDER>_API_KEY` — best for a shell session, container, or CI:
+
+```sh
+export CLAUDE_API_KEY="sk-ant-..."     # or OPENAI_API_KEY / GEMINI_API_KEY; ollama needs none
+```
+
+**3. Save it once** with the `thinchat` command — written to a 0600 store
+(`~/.config/thinchat/credentials.json`) that every session finds without an export. The full
+value is never printed (`set` reads it without echo; `get` shows it masked, edges only):
+
+```sh
+thinchat set claude      # prompt for the key (no echo), store it
+thinchat list            # which providers have a stored key
+thinchat get claude      # show the resolved key, masked
+thinchat unset claude    # remove it
+```
+
+An environment variable always wins over the stored file, so a container or CI overrides the
+store by setting `<PROVIDER>_API_KEY` — no file needed. The same operations are available in
+Python, so a parent application can populate or read the store for its user:
+
+```python
+from thinchat import set_api_key, get_api_key, stored_providers, unset_api_key
+
+set_api_key("claude", value="sk-ant-...")
+key = get_api_key("claude")   # a credbox Secret | None (masked in repr/str/logs; .reveal() for plaintext)
+stored_providers()            # ["claude", ...] — which providers are in the store
+unset_api_key("claude")
+```
+
+> **Claude uses `CLAUDE_API_KEY`, not the anthropic SDK's own `ANTHROPIC_API_KEY`.** thinchat
+> always passes the resolved key to the SDK explicitly, so a stray `ANTHROPIC_API_KEY` in the
+> environment is never picked up.
+
+## 4. Providers
 
 | provider | key env           | embeddings |
 |----------|-------------------|------------|
@@ -81,66 +138,25 @@ asyncio.run(main())
 | `gemini` | `GEMINI_API_KEY`  | yes        |
 | `ollama` | none (local)      | yes        |
 
-openai, gemini, and ollama speak the same OpenAI-compatible API, so one SDK serves all
-three; only the base URL, key, and default models differ. Ollama runs locally
-(`OLLAMA_HOST`, default `http://localhost:11434`) and needs no key.
-
-For Claude, thinchat reads `CLAUDE_API_KEY` — not the anthropic SDK's own `ANTHROPIC_API_KEY`.
-thinchat always passes the resolved key to the SDK explicitly, so a stray `ANTHROPIC_API_KEY`
-in the environment is never picked up; set `CLAUDE_API_KEY` (or store it with `thinchat set`).
+openai, gemini, and ollama speak the same OpenAI-compatible API, so one SDK serves all three;
+only the base URL, key, and default models differ. Ollama runs locally (`OLLAMA_HOST`, default
+`http://localhost:11434`) and needs no key.
 
 Each provider takes the settings it exposes under the same name, sent only when you set them:
 `max_tokens` (reply length), `temperature` / `top_p` (sampling), and `timeout` in seconds /
-`max_retries` (the HTTP client) — e.g. `make_client("claude", temperature=0.2, timeout=30)`.
-An unset value leaves the provider's own default in place, except `max_tokens`, which
-Anthropic requires and so defaults to 4096 for claude (the OpenAI-compatible providers omit
-it, letting the model decide).
-
-thinchat resolves a provider's key in three tiers, in order: an explicit `api_key=` passed to
-`make_client`, then the `<PROVIDER>_API_KEY` environment variable, then thinchat's own store
-(`~/.config/thinchat/credentials.json`, mode 0600). The library core is unchanged — pass
-`api_key=` and no file is ever read:
-
-```python
-llm = make_client("claude", api_key="sk-ant-...", model="claude-haiku-4-5-20251001")
-```
-
-For a shell session, set the environment variable once in your profile (`~/.bashrc`,
-`~/.zshrc`) so every session picks it up:
-
-```sh
-export CLAUDE_API_KEY="sk-ant-..."   # ollama runs locally and needs no key
-```
-
-Or save a key once with the `thinchat` command, which writes the 0600 store so every session
-finds it without an export — the full value is never printed (`set` reads it without echo,
-`get` shows it partially masked — edges only, or `***` when it is too short to show edges):
-
-```sh
-thinchat set claude      # prompt for the key, store it
-thinchat list            # which providers have a stored key
-thinchat get claude      # show the resolved key, masked
-thinchat unset claude    # remove it
-```
-
-The same operations are available programmatically — `thinchat.set_api_key("claude",
-value=...)`, `thinchat.get_api_key("claude")`, `thinchat.stored_providers()`,
-`thinchat.unset_api_key(...)` — so a parent application can populate or read the store for its
-user. `get_api_key` returns a credbox `Secret | None` (masked in `repr`/`str`/logs; call
-`.reveal()` for the plaintext), not a bare string. An environment variable always wins over the
-stored file, so a container or CI run overrides the store by setting `<PROVIDER>_API_KEY`,
-with no file needed.
+`max_retries` (the HTTP client) — e.g. `make_client("claude", temperature=0.2, timeout=30)`. An
+unset value leaves the provider's own default in place, except `max_tokens`, which Anthropic
+requires and so defaults to 4096 for claude (the OpenAI-compatible providers omit it, letting the
+model decide). Any verb also takes a per-call `model=` and an `extra={...}` passthrough (§9).
 
 To reach a gateway, proxy, or Azure-style endpoint, pass `base_url=` to `make_client`
-(`make_client("openai", base_url="https://gateway.internal/v1")`). When you do not, thinchat
-pins each provider's official endpoint rather than leaving it unset — so the vendor SDK never
-reads its own `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` environment variable. This means a
-process that inherited such a variable now ignores it unless you pass `base_url=` explicitly;
-the change closes a path where anything able to write the environment (but not read the 0600
-store) could redirect a resolved key to another host. Ollama still resolves its local endpoint
-from `OLLAMA_HOST`.
+(`make_client("openai", base_url="https://gateway.internal/v1")`). When you do not, thinchat pins
+each provider's official endpoint rather than leaving it unset — so the vendor SDK never reads its
+own `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` variable, closing a path where anything able to write
+the environment (but not read the 0600 store) could redirect a resolved key to another host.
+Ollama still resolves its local endpoint from `OLLAMA_HOST`.
 
-## 4. Capabilities
+## 5. Capabilities
 
 A client whose provider lacks a capability raises `UnsupportedError`. The capabilities are
 `completion`, `streaming`, `structured_output`, and `embeddings`; check first with `supports`:
@@ -149,7 +165,7 @@ A client whose provider lacks a capability raises `UnsupportedError`. The capabi
 make_client("claude").supports("embeddings")   # False
 ```
 
-## 5. Errors
+## 6. Errors
 
 Everything thinchat raises on purpose derives from `ThinchatError`, so one `except` handles
 the package's failures:
@@ -185,7 +201,7 @@ with make_client("gemini") as llm:
         print(f"rate limited; wait {e.retry_after} seconds")
 ```
 
-## 6. Lifecycle
+## 7. Lifecycle
 
 A client holds an HTTP connection pool. For a one-off script you can ignore it; for a
 server that builds a client per request, close it so connections do not leak — use it as a
@@ -208,23 +224,34 @@ event loop to finalize the generator: `async with aclosing(llm.astream(...)) as 
 `contextlib`), or `await s.aclose()`. A sync `stream` releases on `break` by itself; only the
 async stream needs this.
 
-## 7. How it works
+## 8. How it works
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'fontSize':'15px','fontFamily':'ui-sans-serif, system-ui, sans-serif','lineColor':'#94a3b8'}}}%%
 flowchart LR
-  M["make_client(provider)"] --> C["Client<br/>openai-compatible · or claude"]
-  C --> V["complete · stream · parse · embed<br/>(+ a-prefixed async twins)"]
-  V --> S{{"vendor SDK"}}
-  S -->|ok| O(["str · dict · list float · stream"])
-  S -->|"SDK / transport error"| E(["LLMError<br/>RateLimitError for 429"])
+  M(["<b>make_client(provider)</b>"]):::entry
+  C["<b>Client</b><br/>openai-compatible · or claude"]:::client
+  V["<b>complete · stream · parse · embed</b><br/>+ async twins (a-prefixed)"]:::verb
+  S{{"<b>vendor SDK</b>"}}:::sdk
+  O(["<b>Completion(str)</b> · dict · list[float] · stream"]):::ok
+  E(["<b>LLMError</b><br/>AuthError · RateLimitError (429)"]):::err
+  M --> C --> V --> S
+  S -->|ok| O
+  S -->|"SDK / transport error"| E
+  classDef entry  fill:#6366f1,color:#ffffff,stroke:#4338ca,stroke-width:1px;
+  classDef client fill:#eef2ff,color:#1e293b,stroke:#6366f1,stroke-width:1px;
+  classDef verb   fill:#ecfeff,color:#0f172a,stroke:#06b6d4,stroke-width:1px;
+  classDef sdk    fill:#fef9c3,color:#0f172a,stroke:#eab308,stroke-width:1px;
+  classDef ok     fill:#dcfce7,color:#14532d,stroke:#22c55e,stroke-width:1px;
+  classDef err    fill:#fee2e2,color:#7f1d1d,stroke:#ef4444,stroke-width:1px;
 ```
 
 `make_client` looks the provider up in one factory map: openai/gemini/ollama share a single
 class over the openai SDK (they differ only in data); claude has its own over anthropic.
 A call builds the request, hits the SDK, and either extracts the reply or maps the failure
-to `LLMError`, using `RateLimitError` for a 429 after the SDK's retries.
+to an `LLMError` (`AuthError` for 401/403, `RateLimitError` for a 429 after the SDK's retries).
 
-## 8. Scope & stability
+## 9. Scope & stability
 
 thinchat is intentionally a **single-turn completion** client: each call takes one `prompt` plus
 an optional `system` and returns the reply as text (a `Completion`, a `str` that also carries
@@ -246,7 +273,7 @@ Pre-1.0 (0.x): the provider roster and its order, the error hierarchy, the `make
 key-management signatures, and the `Secret` return type are stable (pinned by tests); the default
 models and the message text of a bare `LLMError` may change between releases.
 
-## 9. Development
+## 10. Development
 
 Clone, install the dev extras, and run what CI runs:
 
@@ -258,6 +285,6 @@ make check          # test + lint + types  (or: pytest -q && ruff check src test
 CI additionally builds the package and asserts that a base install imports no provider SDK
 eagerly and ships `py.typed`.
 
-## 10. License
+## 11. License
 
 [MIT](LICENSE)

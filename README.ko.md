@@ -7,11 +7,23 @@
 
 [English](README.md) | **한국어**
 
-네 개의 LLM provider — **claude, openai, gemini, ollama** — 를 위한 얇고 통일된 클라이언트.
+네 개의 LLM provider — **claude, openai, gemini, ollama** — 를 하나의 인터페이스로, 그리고
+**API 키를 흘리지 않는 것**을 일의 일부로 다룹니다.
 
-provider 이름만 대면 호출됩니다. 모든 클라이언트가 completion(전체·스트리밍·JSON 구조화)을
-제공하고, provider가 지원하면 embeddings도 제공하며, 각각 async 짝이 있습니다. gateway도,
-router도, 비용 추적도 없이 — openai·anthropic 두 SDK 위에서 호출만 합니다.
+provider 이름만 대면 호출됩니다: completion(전체·스트리밍·JSON 구조화)과, provider가 지원하면
+embeddings — 각각 async 짝이 있고, openai·anthropic 두 SDK 위에서 돕니다. gateway도 router도
+비용 추적도 없이, 호출만 — 그리고 원래라면 손수 짜야 했을 것들까지:
+
+- **유출 안전한 키.** 키는 credbox `Secret`(로그·트레이스백에서 마스킹)으로 다뤄지고, SDK 호출
+  시점에만 드러납니다. 호출이 실패하면 thinchat이 SDK 에러의 체인을 끊고(sever) 메시지를
+  스크럽해 키가 트레이스백에 실려 나가지 않으며 — 각 provider의 공식 엔드포인트를 고정(pin)해
+  환경변수가 해석된 키를 다른 호스트로 돌려보내지 못하게 합니다.
+- **하나의 공유 키 저장소.** `thinchat set claude`로 키를 한 번 저장하면 0600 저장소에 기록되어
+  모든 세션 — 그리고 형제 도구들 — 이 거기서 찾습니다; 아니면 그냥 환경변수
+  `<PROVIDER>_API_KEY`를 쓰세요(라이브러리 코어는 요청하지 않는 한 파일을 읽지 않습니다).
+- **자잘한 것들 처리.** 구조화 출력은 관대한 JSON(펜스·산문)을 dict로 파싱하고, 임베딩은
+  입력당 벡터 하나를 정합 검사해 돌려주며, `RateLimitError`는 `retry_after`를 담고,
+  `supports()`는 호출 전에 provider 기능을 알려줍니다.
 
 ## 1. 설치
 
@@ -27,7 +39,7 @@ Python 3.11+ 필요. 두 provider SDK(openai와 anthropic)가 함께 설치되�
 ```python
 from thinchat import make_client
 
-llm = make_client("claude")                     # 키는 CLAUDE_API_KEY에서
+llm = make_client("claude")                     # 키는 CLAUDE_API_KEY에서 (§3 참고)
 print(llm.complete("대한민국 수도가 어디야?"))
 print(llm.complete("파이썬이 뭐야?", system="한 문장으로만 답해줘."))   # system=은 생성 verb(complete·stream·parse)에 적용
 
@@ -72,7 +84,52 @@ async def main():
 asyncio.run(main())
 ```
 
-## 3. Provider
+## 3. API 키
+
+thinchat은 provider의 키를 세 곳에서, 이 순서로 해석합니다 — **`api_key=` → 환경변수 → 저장
+파일** — 편한 것을 쓰세요.
+
+**1. 직접 넘기기** — 자체 시크릿을 관리하는 호출자; 파일은 전혀 읽지 않음:
+
+```python
+llm = make_client("claude", api_key="sk-ant-...")
+```
+
+**2. 환경변수** `<PROVIDER>_API_KEY` — 셸 세션·컨테이너·CI에 적합:
+
+```sh
+export CLAUDE_API_KEY="sk-ant-..."     # 또는 OPENAI_API_KEY / GEMINI_API_KEY; ollama는 불필요
+```
+
+**3. 한 번 저장** — `thinchat` 명령으로 0600 저장소(`~/.config/thinchat/credentials.json`)에
+기록하면 export 없이도 모든 세션이 찾습니다. 값 전체는 절대 출력되지 않습니다(`set`은 에코 없이
+입력받고, `get`은 양 끝만 남기고 마스킹):
+
+```sh
+thinchat set claude      # 키 입력(에코 없음) 후 저장
+thinchat list            # 어떤 provider에 키가 저장됐는지
+thinchat get claude      # 해석된 키를 마스킹해 표시
+thinchat unset claude    # 저장된 키 삭제
+```
+
+환경변수는 항상 저장 파일을 이기므로, 컨테이너나 CI에서는 `<PROVIDER>_API_KEY`만 설정하면 파일
+없이 저장소를 덮어씁니다. 같은 동작을 Python에서도 쓸 수 있어, 상위 앱이 사용자를 위해 저장소를
+채우거나 읽어줄 수 있습니다:
+
+```python
+from thinchat import set_api_key, get_api_key, stored_providers, unset_api_key
+
+set_api_key("claude", value="sk-ant-...")
+key = get_api_key("claude")   # credbox Secret | None (repr/str/로그에서 마스킹; 평문은 .reveal())
+stored_providers()            # ["claude", ...] — 저장소에 있는 provider들
+unset_api_key("claude")
+```
+
+> **Claude는 `CLAUDE_API_KEY`를 쓰고, anthropic SDK 자체의 `ANTHROPIC_API_KEY`가 아닙니다.**
+> thinchat은 해석된 키를 항상 SDK에 명시적으로 넘기므로, 환경에 남은 `ANTHROPIC_API_KEY`는 절대
+> 사용되지 않습니다.
+
+## 4. Provider
 
 | provider | 키 환경변수        | embeddings |
 |----------|-------------------|------------|
@@ -85,59 +142,21 @@ openai, gemini, ollama는 동일한 OpenAI 호환 API를 쓰므로 하나의 SDK
 URL·키·기본 모델만 다릅니다. Ollama는 로컬에서 실행되며(`OLLAMA_HOST`, 기본
 `http://localhost:11434`) 키가 필요 없습니다.
 
-Claude는 thinchat이 `CLAUDE_API_KEY`를 읽습니다 — anthropic SDK 자체의 `ANTHROPIC_API_KEY`가
-아닙니다. thinchat은 해석된 키를 항상 SDK에 명시적으로 넘기므로, 환경에 남아 있는
-`ANTHROPIC_API_KEY`는 절대 사용되지 않습니다. `CLAUDE_API_KEY`를 설정하거나 `thinchat set`으로
-저장하세요.
-
-각 provider는 공통으로 노출하는 설정을 같은 이름으로 받으며, **값을 줄 때만** 전송합니다:
+각 provider는 공통으로 노출하는 설정을 같은 이름으로, **값을 줄 때만** 전송합니다:
 `max_tokens`(응답 길이), `temperature`/`top_p`(샘플링), `timeout`(초)/`max_retries`(HTTP
 클라이언트) — 예: `make_client("claude", temperature=0.2, timeout=30)`. 값을 안 주면 provider
 자체 기본이 적용되고, 예외는 `max_tokens`뿐입니다 — Anthropic이 필수로 요구해 claude는 기본
-4096을 쓰고, OpenAI 호환 provider들은 생략해 모델이 정하게 둡니다.
-
-thinchat은 provider의 키를 세 단계로, 이 순서로 해석합니다: `make_client`에 직접 넘긴
-`api_key=`, 그다음 `<PROVIDER>_API_KEY` 환경변수, 그다음 thinchat 자체 저장소
-(`~/.config/thinchat/credentials.json`, 권한 0600). 라이브러리 코어는 그대로입니다 —
-`api_key=`를 넘기면 파일은 전혀 읽지 않습니다:
-
-```python
-llm = make_client("claude", api_key="sk-ant-...", model="claude-haiku-4-5-20251001")
-```
-
-셸 세션이라면 프로파일(`~/.bashrc`, `~/.zshrc`)에 환경변수를 한 번 넣어두면 모든 세션이
-인식합니다:
-
-```sh
-export CLAUDE_API_KEY="sk-ant-..."   # ollama는 로컬이라 키 불필요
-```
-
-또는 `thinchat` 명령으로 키를 한 번 저장해두면 0600 저장소에 기록되어 export 없이도 모든
-세션이 찾습니다 — 값 전체는 절대 출력되지 않습니다(`set`은 에코 없이 입력받고, `get`은
-양 끝만 남기고 마스킹하며, 끝을 보여줘도 대부분이 드러날 만큼 짧으면 `***`로 표시):
-
-```sh
-thinchat set claude      # 키를 입력받아 저장
-thinchat list            # 어떤 provider에 키가 저장됐는지
-thinchat get claude      # 해석된 키를 마스킹해서 표시
-thinchat unset claude    # 저장된 키 삭제
-```
-
-같은 동작을 프로그램에서도 쓸 수 있습니다 — `thinchat.set_api_key("claude", value=...)`,
-`thinchat.get_api_key("claude")`, `thinchat.stored_providers()`, `thinchat.unset_api_key(...)`
-— 그래서 상위 애플리케이션이 사용자를 위해 저장소를 대신 채우거나 읽어줄 수 있습니다. `get_api_key`는 평문 문자열이 아니라
-credbox의 `Secret | None`을 돌려줍니다(`repr`/`str`/로그에서 마스킹; 평문이 필요하면 `.reveal()`). 환경변수는 항상 저장 파일을 이기므로, 컨테이너나
-CI에서는 `<PROVIDER>_API_KEY`만 설정하면 파일 없이 저장소를 덮어씁니다.
+4096, OpenAI 호환 provider들은 생략해 모델이 정하게 둡니다. 모든 verb는 호출별 `model=`과
+`extra={...}` passthrough도 받습니다(§9).
 
 게이트웨이·프록시·Azure류 엔드포인트로 보내려면 `make_client`에 `base_url=`을 넘깁니다
-(`make_client("openai", base_url="https://gateway.internal/v1")`). 넘기지 않으면 thinchat은
-엔드포인트를 비워두지 않고 각 provider의 공식 엔드포인트를 고정(pin)합니다 — 그래서 vendor
-SDK가 자체 `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` 환경변수를 읽지 않습니다. 즉 그런 변수를
-물려받은 프로세스라도 이제 `base_url=`을 명시하지 않는 한 그 값을 무시합니다. 이 변경은
-환경변수를 쓸 수 있지만 0600 저장소는 못 읽는 쪽이 해석된 키를 다른 호스트로 돌려보낼 수 있던
-경로를 막습니다. ollama는 여전히 `OLLAMA_HOST`에서 로컬 엔드포인트를 해석합니다.
+(`make_client("openai", base_url="https://gateway.internal/v1")`). 넘기지 않으면 thinchat은 각
+provider의 공식 엔드포인트를 고정(pin)합니다 — 그래서 vendor SDK가 자체 `OPENAI_BASE_URL` /
+`ANTHROPIC_BASE_URL`를 읽지 않아, 환경변수는 쓸 수 있지만 0600 저장소는 못 읽는 쪽이 해석된
+키를 다른 호스트로 돌려보낼 수 있던 경로를 막습니다. ollama는 여전히 `OLLAMA_HOST`에서 로컬
+엔드포인트를 해석합니다.
 
-## 4. 지원 기능(Capabilities)
+## 5. 지원 기능(Capabilities)
 
 provider가 지원하지 않는 기능을 호출하면 `UnsupportedError`가 발생합니다. 기능은 `completion`,
 `streaming`, `structured_output`, `embeddings`이며, `supports`로 먼저 확인하세요:
@@ -146,7 +165,7 @@ provider가 지원하지 않는 기능을 호출하면 `UnsupportedError`가 발
 make_client("claude").supports("embeddings")   # False
 ```
 
-## 5. 에러
+## 6. 에러
 
 thinchat이 의도적으로 던지는 모든 에러는 `ThinchatError`에서 파생되므로, 하나의 `except`로 이
 패키지의 실패를 처리할 수 있습니다:
@@ -181,7 +200,7 @@ with make_client("gemini") as llm:
         print(f"rate limited; wait {e.retry_after} seconds")
 ```
 
-## 6. 라이프사이클
+## 7. 라이프사이클
 
 클라이언트는 HTTP 연결 풀을 보유합니다. 일회성 스크립트라면 신경 쓰지 않아도 되지만, 요청마다
 클라이언트를 만드는 서버라면 연결이 새지 않도록 닫아야 합니다 — context manager로 쓰거나
@@ -203,23 +222,34 @@ async with make_client("claude") as llm:
 닫으세요: `async with aclosing(llm.astream(...)) as s:`(`contextlib`) 또는 `await s.aclose()`.
 동기 `stream`은 `break` 시 스스로 해제되므로 async 스트림에만 필요합니다.
 
-## 7. 동작 방식
+## 8. 동작 방식
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'fontSize':'15px','fontFamily':'ui-sans-serif, system-ui, sans-serif','lineColor':'#94a3b8'}}}%%
 flowchart LR
-  M["make_client(provider)"] --> C["Client<br/>openai-compatible · or claude"]
-  C --> V["complete · stream · parse · embed<br/>(+ a-prefixed async twins)"]
-  V --> S{{"vendor SDK"}}
-  S -->|ok| O(["str · dict · list float · stream"])
-  S -->|"SDK / transport error"| E(["LLMError<br/>429는 RateLimitError"])
+  M(["<b>make_client(provider)</b>"]):::entry
+  C["<b>Client</b><br/>openai-compatible · or claude"]:::client
+  V["<b>complete · stream · parse · embed</b><br/>+ async 짝 (a-prefixed)"]:::verb
+  S{{"<b>vendor SDK</b>"}}:::sdk
+  O(["<b>Completion(str)</b> · dict · list[float] · stream"]):::ok
+  E(["<b>LLMError</b><br/>AuthError · RateLimitError (429)"]):::err
+  M --> C --> V --> S
+  S -->|ok| O
+  S -->|"SDK / 전송 오류"| E
+  classDef entry  fill:#6366f1,color:#ffffff,stroke:#4338ca,stroke-width:1px;
+  classDef client fill:#eef2ff,color:#1e293b,stroke:#6366f1,stroke-width:1px;
+  classDef verb   fill:#ecfeff,color:#0f172a,stroke:#06b6d4,stroke-width:1px;
+  classDef sdk    fill:#fef9c3,color:#0f172a,stroke:#eab308,stroke-width:1px;
+  classDef ok     fill:#dcfce7,color:#14532d,stroke:#22c55e,stroke-width:1px;
+  classDef err    fill:#fee2e2,color:#7f1d1d,stroke:#ef4444,stroke-width:1px;
 ```
 
 `make_client`는 provider를 하나의 factory map에서 찾습니다: openai/gemini/ollama는 openai
 SDK 위의 단일 클래스를 공유하고(데이터만 다름), claude는 anthropic 위에 자기 것을 둡니다.
-호출은 요청을 조립해 SDK를 치고, 응답을 추출하거나 실패를 `LLMError`로 매핑하되 SDK 재시도
-후의 429에는 `RateLimitError`를 사용합니다.
+호출은 요청을 조립해 SDK를 치고, 응답을 추출하거나 실패를 `LLMError`로 매핑합니다(401/403은
+`AuthError`, SDK 재시도 후의 429는 `RateLimitError`).
 
-## 8. 범위와 안정성
+## 9. 범위와 안정성
 
 thinchat은 의도적으로 **단일 턴(single-turn) completion** 클라이언트입니다: 각 호출은 하나의
 `prompt`와 선택적 `system`을 받아 답을 텍스트(`Completion` — `.finish_reason`/`.truncated`/
@@ -240,7 +270,7 @@ credbox에서 re-export되며, 마스킹과 `.reveal()`은 credbox가 관장합�
 반환 타입은 안정적입니다(테스트로 고정). 기본 모델과 bare `LLMError`의 메시지 텍스트는 릴리스
 간 바뀔 수 있습니다.
 
-## 9. 개발
+## 10. 개발
 
 클론 후 dev extras를 설치하고, CI가 돌리는 것을 그대로 실행하세요:
 
@@ -252,6 +282,6 @@ make check          # test + lint + types  (또는: pytest -q && ruff check src 
 CI는 추가로 패키지를 빌드해 base 설치가 provider SDK를 eager import하지 않고 `py.typed`를
 포함하는지 검증합니다.
 
-## 10. 라이선스
+## 11. 라이선스
 
 [MIT](LICENSE)
