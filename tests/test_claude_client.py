@@ -28,6 +28,10 @@ def test_complete_returns_the_reply_text(monkeypatch):
     assert _client(monkeypatch, content="hi there").complete("q") == "hi there"
 
 
+def test_repr_names_the_class_and_model(monkeypatch):
+    assert repr(_client(monkeypatch)) == "ClaudeClient(model='claude-haiku-4-5-20251001')"
+
+
 async def test_acomplete_returns_the_reply_text(monkeypatch):
     assert await _client(monkeypatch, content="hi").acomplete("q") == "hi"
 

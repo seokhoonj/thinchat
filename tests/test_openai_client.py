@@ -205,6 +205,17 @@ def test_stream_skips_chunks_without_text_delta(monkeypatch):
     assert "".join(_client(monkeypatch, chunks=("a", None, "", "b")).stream("hi")) == "ab"
 
 
+async def test_astream_skips_chunks_without_text_delta(monkeypatch):
+    # the async path must skip empty/None deltas the same as the sync one.
+    client = _client(monkeypatch, chunks=("a", None, "", "b"))
+    assert "".join([chunk async for chunk in client.astream("hi")]) == "ab"
+
+
+def test_repr_names_the_provider_and_model(monkeypatch):
+    rendered = repr(_client(monkeypatch))
+    assert rendered == "OpenAICompatibleClient(provider='openai', model='gpt-4o-mini')"
+
+
 def test_stream_maps_a_midstream_sdk_error_to_llm_error(monkeypatch):
     client = _client(monkeypatch, chunks=("a", "b", "c"), stream_error_after=1)
     stream = client.stream("hi")

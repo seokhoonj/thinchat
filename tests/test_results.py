@@ -17,3 +17,9 @@ def test_completion_defaults_to_empty_metadata():
     completion = Completion("x")
     assert completion.finish_reason is None and completion.truncated is False
     assert completion.usage is None and completion.model is None
+
+
+def test_completion_repr_shows_the_text_and_metadata():
+    rendered = repr(Completion("hi", finish_reason="stop", model="m"))
+    assert rendered.startswith("Completion(") and "'hi'" in rendered
+    assert "finish_reason='stop'" in rendered and "model='m'" in rendered

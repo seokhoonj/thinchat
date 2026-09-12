@@ -14,6 +14,11 @@ def test_strips_json_fences():
     assert parse_json('```json\n{"a": 1}\n```') == {"a": 1}
 
 
+def test_strips_a_plain_fence_without_the_json_tag():
+    # a bare ``` fence (no "json" language tag) is still stripped before brace-scanning.
+    assert parse_json('```\n{"a": 1}\n```') == {"a": 1}
+
+
 def test_pulls_the_object_out_of_surrounding_prose():
     assert parse_json('Sure! {"a": 1} hope that helps.') == {"a": 1}
 
