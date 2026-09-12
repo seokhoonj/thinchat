@@ -45,6 +45,7 @@ dependencies    = [
 Homepage   = "https://github.com/seokhoonj/thinchat"
 Repository = "https://github.com/seokhoonj/thinchat"
 Issues     = "https://github.com/seokhoonj/thinchat/issues"
+Changelog  = "https://github.com/seokhoonj/thinchat/releases"
 
 [project.scripts]
 thinchat = "thinchat.cli:main"

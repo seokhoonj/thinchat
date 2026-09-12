@@ -64,9 +64,13 @@ def test_get_masks_a_key_resolved_from_the_environment(monkeypatch, capsys):
     assert "sk-e" in shown   # masked, edges only
 
 
-def test_get_on_a_missing_key_reports_no_key(capsys):
-    assert main(["get", "gemini"]) == 0
-    assert "no key for gemini" in capsys.readouterr().out
+def test_get_on_a_missing_key_reports_to_stderr_and_exits_nonzero(capsys):
+    # A missing key must not print a human sentence to stdout with exit 0: a script doing
+    # key=$(thinchat get X) would capture "no key for X" as the key. It goes to stderr, exit 1.
+    assert main(["get", "gemini"]) == 1
+    captured = capsys.readouterr()
+    assert "no key for gemini" in captured.err
+    assert captured.out == ""
 
 
 def test_list_shows_which_providers_are_set(capsys):

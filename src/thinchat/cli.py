@@ -75,14 +75,21 @@ def _cmd_set(args: argparse.Namespace) -> int:
 def _cmd_get(args: argparse.Namespace) -> int:
     key = keys.get_api_key(args.provider)
     if key is None:
-        print(f"no key for {args.provider}")
-        return 0
+        # Route the not-found line to stderr and exit non-zero, so `key=$(thinchat get X)` in a
+        # script captures an empty stdout (and a testable exit code) rather than the literal
+        # sentence "no key for X" mistaken for the key.
+        print(f"thinchat: no key for {args.provider}", file=sys.stderr)
+        return 1
     print(key)   # a Secret: str() masks it (edges only, or *** when too short to show edges)
     return 0
 
 
 def _cmd_list(args: argparse.Namespace) -> int:
     stored = set(keys.stored_providers())
+    # Legend: `list` reflects the FILE store only -- an env var like OPENAI_API_KEY still resolves
+    # via `get`/make_client but is deliberately not shown here, so "not set" never surprises a user
+    # who has exported the key.
+    print("stored keys (file store only; an env var like OPENAI_API_KEY also resolves but is not shown):")
     for provider in keys.ENV_BY_PROVIDER:
         print(f"  {provider:8} {'set' if provider in stored else 'not set'}")
     return 0

@@ -171,4 +171,5 @@ def _stored_name(provider: str) -> str:
     if provider in _ALL_PROVIDERS:
         raise UnsupportedError(f"{provider} needs no API key, so none can be stored")
     raise UnknownProviderError(
-        f"unknown provider {provider!r}; choose one of {', '.join(ENV_BY_PROVIDER)}")
+        f"unknown provider {provider!r}; choose one of {', '.join(ENV_BY_PROVIDER)} "
+        f"(ollama needs no API key)")

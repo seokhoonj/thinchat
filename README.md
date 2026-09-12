@@ -246,6 +246,18 @@ Pre-1.0 (0.x): the provider roster and its order, the error hierarchy, the `make
 key-management signatures, and the `Secret` return type are stable (pinned by tests); the default
 models and the message text of a bare `LLMError` may change between releases.
 
-## 9. License
+## 9. Development
+
+Clone, install the dev extras, and run what CI runs:
+
+```sh
+uv venv && uv pip install -e ".[dev]"
+make check          # test + lint + types  (or: pytest -q && ruff check src tests && mypy)
+```
+
+CI additionally builds the package and asserts that a base install imports no provider SDK
+eagerly and ships `py.typed`.
+
+## 10. License
 
 [MIT](LICENSE)

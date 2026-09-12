@@ -240,6 +240,18 @@ credbox에서 re-export되며, 마스킹과 `.reveal()`은 credbox가 관장합�
 반환 타입은 안정적입니다(테스트로 고정). 기본 모델과 bare `LLMError`의 메시지 텍스트는 릴리스
 간 바뀔 수 있습니다.
 
-## 9. 라이선스
+## 9. 개발
+
+클론 후 dev extras를 설치하고, CI가 돌리는 것을 그대로 실행하세요:
+
+```sh
+uv venv && uv pip install -e ".[dev]"
+make check          # test + lint + types  (또는: pytest -q && ruff check src tests && mypy)
+```
+
+CI는 추가로 패키지를 빌드해 base 설치가 provider SDK를 eager import하지 않고 `py.typed`를
+포함하는지 검증합니다.
+
+## 10. 라이선스
 
 [MIT](LICENSE)
