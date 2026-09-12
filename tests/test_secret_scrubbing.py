@@ -181,6 +181,59 @@ def test_sdk_error_control_characters_are_neutralized_in_the_message(monkeypatch
     assert "boom" in message   # the safe text survives
 
 
+def test_mapping_is_total_even_if_the_status_code_raises(monkeypatch):
+    # _map_sdk_failure reads err.status_code inside each verb's except block; a hostile property
+    # that raised there would chain __context__ to the key-bearing SDK error. It must degrade to
+    # status_code=None and still yield a clean, severed error (the sibling to the retry-after case).
+    class _HostileStatusError(FakeOpenAIError):
+        @property
+        def status_code(self):
+            raise RuntimeError("boom from status_code")
+
+    install_openai(monkeypatch, error=_HostileStatusError(f"401 for key {_TEST_API_KEY}"))
+    client = make_client("openai", api_key=_TEST_API_KEY)
+    with pytest.raises(LLMError) as exc_info:
+        client.complete("hi")
+    assert exc_info.value.status_code is None   # the raising property degraded to None, did not escape
+    assert exc_info.value.__cause__ is None and exc_info.value.__context__ is None
+    _assert_secret_absent(_TEST_API_KEY, exc_info.value)
+
+
+def test_rate_limit_mapping_is_total_even_if_the_headers_property_raises(monkeypatch):
+    # On the 429 path _retry_after_seconds reads err.response.headers; a hostile property that
+    # raises there (a bare getattr only swallows AttributeError) would chain __context__ to the
+    # key-bearing SDK error. It must degrade to retry_after=None with the chain severed.
+    class _RaisingHeaders:
+        @property
+        def headers(self):
+            raise RuntimeError("boom from headers")
+
+    err = FakeOpenAIRateLimitError(f"429 for key {_TEST_API_KEY}")
+    err.response = _RaisingHeaders()   # type: ignore[assignment]  # response.headers is a raising property
+    install_openai(monkeypatch, error=err)
+    client = make_client("openai", api_key=_TEST_API_KEY)
+    with pytest.raises(RateLimitError) as exc_info:
+        client.complete("hi")
+    assert exc_info.value.retry_after is None
+    assert exc_info.value.__cause__ is None and exc_info.value.__context__ is None
+    _assert_secret_absent(_TEST_API_KEY, exc_info.value)
+
+
+def test_mapping_is_total_even_if_the_error_str_raises(monkeypatch):
+    # _map_sdk_failure renders str(err) for the detail; a hostile __str__ must not escape inside
+    # the verb's except block (it would chain __context__ to the key-bearing SDK error).
+    class _HostileStrError(FakeOpenAIError):
+        def __str__(self):
+            raise RuntimeError("boom from __str__")
+
+    install_openai(monkeypatch, error=_HostileStrError("unused"))
+    client = make_client("openai", api_key=_TEST_API_KEY)
+    with pytest.raises(LLMError) as exc_info:
+        client.complete("hi")
+    assert exc_info.value.__cause__ is None and exc_info.value.__context__ is None
+    _assert_secret_absent(_TEST_API_KEY, exc_info.value)
+
+
 def test_the_ollama_placeholder_key_is_not_scrubbed(monkeypatch):
     install_openai(monkeypatch, error=FakeOpenAIError("ollama server is not running on localhost"))
     client = make_client("ollama")   # no key -> the dummy placeholder, which is not a secret

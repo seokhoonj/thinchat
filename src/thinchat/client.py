@@ -74,39 +74,40 @@ def _status_code(err: object) -> int | None:
     """The HTTP status on an SDK error as a plain int, or None. Reads only a primitive (never a
     reference to ``err``), so the failure mapping can carry it without keeping the key-bearing
     error alive. openai/anthropic expose ``status_code`` directly; fall back to
-    ``err.response.status_code``."""
-    for source in (err, getattr(err, "response", None)):
-        code = getattr(source, "status_code", None)
-        if isinstance(code, int) and not isinstance(code, bool):
-            return code
+    ``err.response.status_code``. The whole read is guarded: ``_map_sdk_failure`` runs inside each
+    verb's ``except`` block, so if a hostile ``status_code`` / ``response`` property raised here,
+    the escaping exception would implicitly chain ``__context__`` to the key-bearing SDK error and
+    defeat the severance -- a failure degrades to None instead."""
+    try:
+        for source in (err, getattr(err, "response", None)):
+            code = getattr(source, "status_code", None)
+            if isinstance(code, int) and not isinstance(code, bool):
+                return code
+    except Exception:
+        return None
     return None
 
 
 def _retry_after_seconds(err: object) -> float | None:
     """Return a numeric ``Retry-After`` response header as non-negative finite seconds within a
     sane maximum (a day), or None when the response has no usable numeric value -- including a
-    negative, non-finite, or absurdly large value a hostile endpoint might return."""
-    response = getattr(err, "response", None)
-    headers  = getattr(response, "headers", None)
-    if headers is None:
-        return None
-    getter = getattr(headers, "get", None)
-    if getter is None:
-        return None
-    # The header read is guarded because _map_sdk_failure runs while still inside each verb's
-    # `except` block: if a hostile headers.get() escaped here, the raised exception would
-    # implicitly chain __context__ to the key-bearing SDK error and defeat the severance. Any
-    # failure degrades to None (no retry hint), keeping the mapping total.
+    negative, non-finite, or absurdly large value a hostile endpoint might return. The whole read
+    is guarded: ``_map_sdk_failure`` runs inside each verb's ``except`` block, so if a hostile
+    ``response`` / ``headers`` property (a bare ``getattr`` only swallows ``AttributeError``) or a
+    ``.get()`` raised here, the escaping exception would implicitly chain ``__context__`` to the
+    key-bearing SDK error and defeat the severance -- any failure degrades to None instead."""
     try:
+        response = getattr(err, "response", None)
+        headers  = getattr(response, "headers", None)
+        getter   = getattr(headers, "get", None)
+        if getter is None:
+            return None
         raw = getter("retry-after")
+        if raw is None:
+            return None
+        seconds = float(raw)
     except Exception:
         return None
-    if raw is None:
-        return None
-    try:
-        seconds = float(raw)
-    except Exception:   # total like the getter above: this runs inside a verb's except block, so
-        return None     # an escape here would chain __context__ to the key-bearing SDK error
     return seconds if math.isfinite(seconds) and 0 <= seconds <= _MAX_RETRY_AFTER_SECONDS else None
 
 
@@ -195,10 +196,14 @@ class _BaseClient(ABC):
         dropped. A keyless provider (ollama) has ``_secret_key`` None, so nothing is redacted."""
         secrets = [self._secret_key] if self._secret_key is not None else []
         scrub_exception(err, secrets)
+        try:
+            rendered = str(err)
+        except Exception:   # a hostile __str__ must not escape inside the verb's except block
+            rendered = f"<{type(err).__name__}>"
         # The detail comes from the remote service: neutralize control characters (so a hostile
         # endpoint cannot smuggle terminal escapes into a log line) and cap its length, after
         # scrubbing any key from the rendered text.
-        scrubbed_detail = neutralize_controls(scrub_secrets(str(err), secrets)[:_MAX_SDK_DETAIL_CHARS])
+        scrubbed_detail = neutralize_controls(scrub_secrets(rendered, secrets)[:_MAX_SDK_DETAIL_CHARS])
         if isinstance(err, self._ratelimit_error):
             return RateLimitError(
                 f"{self._provider_label} {action} rate-limited: {scrubbed_detail}",

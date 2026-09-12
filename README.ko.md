@@ -57,7 +57,7 @@ vectors = make_client("openai").embed(["강아지", "고양이"])
 reply = make_client("claude", max_tokens=50).complete("강에 대한 긴 글을 써줘.")
 print(reply)                       # str: 출력·슬라이싱·비교 모두 문자열처럼
 if reply.truncated:                # 답이 토큰 상한에 걸려 잘렸으면 True
-    print(f"잘림; 토큰 {reply.usage.output_tokens}개 생성")   # .finish_reason / .usage / .model
+    print(f"잘림 (finish_reason={reply.finish_reason})")   # .usage / .model 도 사용 가능
 ```
 
 모든 verb에는 async 짝이 있습니다 — `acomplete`, `astream`, `aparse`, `aembed`:

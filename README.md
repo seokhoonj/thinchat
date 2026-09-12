@@ -57,7 +57,7 @@ reply's metadata, so you can tell a finished reply from one cut off at the token
 reply = make_client("claude", max_tokens=50).complete("Write a long essay on rivers.")
 print(reply)                       # a str: prints, slices, compares like any string
 if reply.truncated:                # True when the reply hit the token cap
-    print(f"cut off; produced {reply.usage.output_tokens} tokens")   # .finish_reason / .usage / .model
+    print(f"cut off (finish_reason={reply.finish_reason})")   # .usage / .model also available
 ```
 
 Every verb has an async twin — `acomplete`, `astream`, `aparse`, `aembed`:
