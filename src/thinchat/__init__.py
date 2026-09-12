@@ -25,6 +25,7 @@ from credbox import (
 from thinchat.claude_client import ClaudeClient
 from thinchat.client import Capability, Client, Provider
 from thinchat.errors import (
+    AuthError,
     BlankKeyError,
     CredentialStoreError,
     LLMError,
@@ -41,6 +42,7 @@ from thinchat.results import Completion, Usage
 
 __all__ = [
     "PROVIDERS",
+    "AuthError",
     "BlankKeyError",
     "Capability",
     "ClaudeClient",

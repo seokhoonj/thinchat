@@ -20,6 +20,7 @@ from typing import Any, Literal, Protocol, Self, runtime_checkable
 from credbox import Secret, scrub_exception, scrub_secrets
 
 from thinchat.errors import (
+    AuthError,
     LLMError,
     ProviderUnavailableError,
     RateLimitError,
@@ -67,6 +68,18 @@ Provider = Literal["claude", "openai", "gemini", "ollama"]
 # What a client can do. A caller reads ``supports`` (or catches ``UnsupportedError``)
 # rather than assuming: Claude, for one, has completion and streaming but no embeddings.
 Capability = Literal["completion", "streaming", "structured_output", "embeddings"]
+
+
+def _status_code(err: object) -> int | None:
+    """The HTTP status on an SDK error as a plain int, or None. Reads only a primitive (never a
+    reference to ``err``), so the failure mapping can carry it without keeping the key-bearing
+    error alive. openai/anthropic expose ``status_code`` directly; fall back to
+    ``err.response.status_code``."""
+    for source in (err, getattr(err, "response", None)):
+        code = getattr(source, "status_code", None)
+        if isinstance(code, int) and not isinstance(code, bool):
+            return code
+    return None
 
 
 def _retry_after_seconds(err: object) -> float | None:
@@ -191,7 +204,11 @@ class _BaseClient(ABC):
                 f"{self._provider_label} {action} rate-limited: {scrubbed_detail}",
                 retry_after=_retry_after_seconds(err),
             )
-        return LLMError(f"{self._provider_label} {action} failed: {scrubbed_detail}")
+        status = _status_code(err)   # a plain int, so severance holds: no reference to err is kept
+        message = f"{self._provider_label} {action} failed: {scrubbed_detail}"
+        if status in (401, 403):
+            return AuthError(message, status_code=status)
+        return LLMError(message, status_code=status)
 
     def supports(self, capability: Capability) -> bool:
         """Whether this client offers ``capability`` -- the check to make before calling

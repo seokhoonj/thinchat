@@ -7,6 +7,11 @@ def test_rate_limit_error_is_exported_as_an_llm_error():
     assert issubclass(RateLimitError, LLMError)
 
 
+def test_auth_error_is_exported_as_an_llm_error():
+    from thinchat import AuthError
+    assert issubclass(AuthError, LLMError)
+
+
 def test_secret_is_the_credbox_type_with_its_masking_contract():
     # thinchat re-exports credbox.Secret as public API and documents .reveal()/masking as its own
     # contract; pin the identity and the mask/reveal behaviour at thinchat's OWN boundary, so a

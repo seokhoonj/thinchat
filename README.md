@@ -162,8 +162,11 @@ the package's failures:
   is also a `ValueError`, so `except ValueError` catches it too.
 - `CredentialStoreError` — the stored-key file (`~/.config/thinchat/credentials.json`) is
   present but unreadable or malformed, or could not be written.
-- `LLMError` — the API call failed, or the reply was empty or malformed. The API key is
-  redacted from the message and its cause chain.
+- `LLMError` — the API call failed, or the reply was empty or malformed. Its `status_code` is
+  the HTTP status when one was available (branch on it to tell a transient 5xx worth retrying
+  from a permanent 4xx); the API key is redacted from the message and its cause chain.
+- `AuthError` — the credentials were rejected (HTTP 401/403): a missing, invalid, or revoked
+  key, or one without access. A subclass of `LLMError`, so `except LLMError` still catches it.
 - `RateLimitError` — a 429 rate limit after the SDK's own retries. It is a subclass of
   `LLMError`, so existing handlers still catch it, and its `retry_after` is how many
   seconds to wait before trying again (from the server's Retry-After), or `None` when the

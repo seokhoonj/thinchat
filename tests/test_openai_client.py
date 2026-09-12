@@ -410,6 +410,31 @@ def test_an_absurd_retry_after_is_treated_as_no_hint(monkeypatch):
     assert excinfo.value.retry_after is None
 
 
+def test_a_401_maps_to_auth_error_with_status_code(monkeypatch):
+    from thinchat.errors import AuthError
+    err = FakeOpenAIError("invalid api key")
+    err.status_code = 401  # type: ignore[attr-defined]
+    with pytest.raises(AuthError) as excinfo:
+        _client(monkeypatch, error=err).complete("hi")
+    assert excinfo.value.status_code == 401
+    assert isinstance(excinfo.value, LLMError)   # `except LLMError` still catches it
+
+
+def test_a_5xx_error_carries_the_status_code_but_is_a_plain_llm_error(monkeypatch):
+    err = FakeOpenAIError("service unavailable")
+    err.status_code = 503  # type: ignore[attr-defined]
+    with pytest.raises(LLMError) as excinfo:
+        _client(monkeypatch, error=err).complete("hi")
+    assert type(excinfo.value) is LLMError   # a transient 5xx is not an AuthError
+    assert excinfo.value.status_code == 503
+
+
+def test_rate_limit_carries_status_code_429(monkeypatch):
+    with pytest.raises(RateLimitError) as excinfo:
+        _client(monkeypatch, error=FakeOpenAIRateLimitError()).complete("hi")
+    assert excinfo.value.status_code == 429
+
+
 def test_rate_limit_error_remains_an_llm_error():
     assert issubclass(RateLimitError, LLMError)
 

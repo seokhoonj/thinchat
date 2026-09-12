@@ -19,6 +19,7 @@ __all__ = [
     "ThinchatError",
     "ProviderUnavailableError",
     "LLMError",
+    "AuthError",
     "RateLimitError",
     "UnknownProviderError",
     "UnsupportedError",
@@ -68,7 +69,21 @@ class CredentialStoreError(ThinchatError):
 
 class LLMError(ThinchatError):
     """The API call was made but failed: the service returned an error, or the reply was
-    empty or not the requested shape. Its message carries the underlying cause."""
+    empty or not the requested shape. Its message carries the underlying cause. ``status_code``
+    is the HTTP status the service returned when one was available (None for a transport
+    failure, or an empty / malformed reply) -- a caller can branch on it to tell a transient
+    5xx worth retrying from a permanent 4xx, without matching on the message text."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class AuthError(LLMError):
+    """The service rejected the credentials (HTTP 401/403): the API key is missing, invalid,
+    revoked, or lacks access to the resource. Permanent -- fix the key rather than retry. A
+    subclass of ``LLMError`` so ``except LLMError`` still catches it; catch this type to tell a
+    bad key from a transient failure."""
 
 
 class RateLimitError(LLMError):
@@ -79,5 +94,5 @@ class RateLimitError(LLMError):
     waiting and retrying from a permanent failure."""
 
     def __init__(self, message: str, *, retry_after: float | None = None) -> None:
-        super().__init__(message)
+        super().__init__(message, status_code=429)
         self.retry_after = retry_after
