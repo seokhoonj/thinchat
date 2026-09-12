@@ -225,14 +225,14 @@ async with make_client("claude") as llm:
 ## 8. 동작 방식
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'fontSize':'15px','fontFamily':'ui-sans-serif, system-ui, sans-serif','lineColor':'#94a3b8'}}}%%
+%%{init: {'theme':'base','themeVariables':{'fontSize':'18px','fontFamily':'ui-sans-serif, system-ui, sans-serif','lineColor':'#94a3b8'}}}%%
 flowchart LR
-  M(["<b>make_client(provider)</b>"]):::entry
-  C["<b>Client</b><br/>openai-compatible · or claude"]:::client
-  V["<b>complete · stream · parse · embed</b><br/>+ async 짝 (a-prefixed)"]:::verb
-  S("<b>vendor SDK</b>"):::sdk
-  O(["<b>Completion(str)</b> · dict · list[float] · stream"]):::ok
-  E(["<b>LLMError</b><br/>AuthError · RateLimitError (429)"]):::err
+  M(["<b>make_client</b><br/>(provider)"]):::entry
+  C["<b>Client</b><br/>openai-compatible<br/>or claude"]:::client
+  V["<b>complete · stream</b><br/><b>parse · embed</b><br/>+ async 짝"]:::verb
+  S("<b>vendor<br/>SDK</b>"):::sdk
+  O(["<b>Completion(str)</b><br/>dict · list[float]<br/>stream"]):::ok
+  E(["<b>LLMError</b><br/>AuthError<br/>RateLimitError (429)"]):::err
   M --> C --> V --> S
   S -->|ok| O
   S -->|"SDK / 전송 오류"| E
