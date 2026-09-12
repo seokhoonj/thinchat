@@ -89,10 +89,11 @@ asyncio.run(main())
 thinchat resolves a provider's key three ways, listed most-recommended first. (When more than one
 is set, precedence runs the other way: `api_key=` > environment > stored file.)
 
-**1. Save it once** with the `thinchat` command — written to a 0600 store
-(`~/.config/thinchat/credentials.json`) that every session finds without an export, so no key sits
-in a shell profile; this shared store is what the tool adds. The full value is never printed
-(`set` reads it without echo; `get` shows it masked, edges only):
+**1. Save it to the store** — the `thinchat` command writes a 0600 store
+(`~/.config/thinchat/credentials.json`) that **persists across sessions**, so you set a key once
+and every session finds it — no re-export, no key sitting in a shell profile; this shared store is
+what the tool adds. The full value is never printed (`set` reads it without echo; `get` shows it
+masked, edges only):
 
 ```sh
 thinchat set claude      # prompt for the key (no echo), store it
