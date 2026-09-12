@@ -1,6 +1,14 @@
 """The Completion result object: a str subclass carrying the reply's metadata."""
 
 from thinchat import Completion, Usage
+from thinchat.results import _as_int
+
+
+def test_as_int_accepts_ints_and_rejects_bool_and_non_ints():
+    # a bool is an int subclass but never a valid token count; a non-int degrades to None.
+    assert _as_int(7) == 7 and _as_int(0) == 0 and _as_int(10 ** 30) == 10 ** 30
+    assert _as_int(True) is None and _as_int(False) is None
+    assert _as_int("7") is None and _as_int(7.0) is None and _as_int(None) is None
 
 
 def test_completion_is_a_string_carrying_metadata():

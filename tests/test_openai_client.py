@@ -579,6 +579,15 @@ def test_embed_raises_on_a_mixed_indexed_and_unindexed_response(monkeypatch):
         _client(monkeypatch, embedding=response).embed(["a", "b"])
 
 
+def test_embed_rejects_a_positional_response_with_the_wrong_count(monkeypatch):
+    # A no-index (positional) response with fewer vectors than inputs must be rejected by the
+    # count check -- the index-permutation path does not run when indices are absent, so this is
+    # the only guard against a silently short/misaligned positional response.
+    response = fake_embeddings([([1.0], None)])   # 1 vector, no index, for 2 inputs
+    with pytest.raises(LLMError):
+        _client(monkeypatch, embedding=response).embed(["a", "b"])
+
+
 def test_embed_falls_back_to_positional_order_when_indices_are_absent(monkeypatch):
     # A compat endpoint that omits `index` entirely is trusted in positional order, with the
     # count check still guarding against a short or padded response.
