@@ -37,9 +37,9 @@ class UnknownProviderError(ThinchatError):
 
 
 class ProviderUnavailableError(ThinchatError):
-    """A client could not be constructed: its SDK is not installed (install the matching
-    extra) or no API key is available for it. Distinct from ``LLMError`` because nothing
-    was sent -- the failure is local setup, not the remote service."""
+    """A client could not be constructed: its SDK is not installed (reinstall thinchat -- both
+    provider SDKs ship with it) or no API key is available for it. Distinct from ``LLMError``
+    because nothing was sent -- the failure is local setup, not the remote service."""
 
 
 class UnsupportedError(ThinchatError):

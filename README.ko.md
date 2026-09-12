@@ -206,6 +206,23 @@ SDK 위의 단일 클래스를 공유하고(데이터만 다름), claude는 anth
 호출은 요청을 조립해 SDK를 치고, 응답을 추출하거나 실패를 `LLMError`로 매핑하되 SDK 재시도
 후의 429에는 `RateLimitError`를 사용합니다.
 
-## 8. 라이선스
+## 8. 범위와 안정성
+
+thinchat은 의도적으로 **단일 턴(single-turn) completion** 클라이언트입니다: 각 호출은 하나의
+`prompt`와 선택적 `system`을 받아 답을 평문(또는 JSON 객체·벡터)으로 돌려줍니다. 멀티턴 대화
+기록, tool/function calling, 토큰·사용량·비용 리포팅, 비전 등 멀티모달 입력, provider별 요청
+필드는 **다루지 않습니다** — 그런 경우 provider SDK를 직접 쓰세요. `parse()`는 답을 schema
+방향으로 유도할 뿐 강제하지는 않으며(§2), `embed()`에 리스트가 아니라 단일 문자열을 주면
+`TypeError`(ThinchatError 아님)가 납니다.
+
+provider별 기본 **모델**과 `max_tokens`는 현재 provider 기본값을 따라가며 고정(pin)되지
+않습니다 — 재현이 필요하면 `model=` / `max_tokens=`를 넘기세요. `Secret`은 credbox에서
+re-export되며, 마스킹과 `.reveal()`은 credbox가 관장합니다.
+
+1.0 이전(0.x): provider 로스터와 그 순서, 에러 계층, `make_client`·키 관리 시그니처, `Secret`
+반환 타입은 안정적입니다(테스트로 고정). 기본 모델과 bare `LLMError`의 메시지 텍스트는 릴리스
+간 바뀔 수 있습니다.
+
+## 9. 라이선스
 
 [MIT](LICENSE)

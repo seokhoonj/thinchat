@@ -211,6 +211,24 @@ class over the openai SDK (they differ only in data); claude has its own over an
 A call builds the request, hits the SDK, and either extracts the reply or maps the failure
 to `LLMError`, using `RateLimitError` for a 429 after the SDK's retries.
 
-## 8. License
+## 8. Scope & stability
+
+thinchat is intentionally a **single-turn completion** client: each call takes one `prompt` plus
+an optional `system` and returns the reply as plain text (or a JSON object / vectors). It does
+**not** cover multi-turn conversation history, tool/function calling, token/usage & cost
+reporting, vision or other multimodal input, or provider-specific request fields — for those,
+use the provider SDK directly. `parse()` steers the reply toward your schema but does not enforce
+it (§2), and `embed()` raises `TypeError` (not a `ThinchatError`) if handed a single string
+instead of a list.
+
+The default **model** and `max_tokens` per provider track current provider defaults and are not
+pinned — pass `model=` / `max_tokens=` for reproducibility. `Secret` is re-exported from credbox,
+which governs its masking and `.reveal()`.
+
+Pre-1.0 (0.x): the provider roster and its order, the error hierarchy, the `make_client` and
+key-management signatures, and the `Secret` return type are stable (pinned by tests); the default
+models and the message text of a bare `LLMError` may change between releases.
+
+## 9. License
 
 [MIT](LICENSE)
