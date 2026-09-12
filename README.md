@@ -86,8 +86,12 @@ asyncio.run(main())
 
 ## 3. API keys
 
-thinchat resolves a provider's key from three places, in order — **`api_key=` → environment →
-stored file** — so use whichever fits.
+thinchat resolves a provider's key from three places. **Which to use:** for a persistent local
+setup, save it once with `thinchat set` — the 0600 store is the leak-safer default (no key in a
+shell profile), and this shared store is the reason the tool exists; for a container or CI, set
+the `<PROVIDER>_API_KEY` environment variable; when your app manages its own secrets, pass
+`api_key=`. The methods below are listed in **precedence** order — when more than one is set, the
+earlier wins: `api_key=` → environment → stored file.
 
 **1. Pass it directly** — a caller managing its own secrets; no file is ever read:
 
