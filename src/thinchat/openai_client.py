@@ -447,8 +447,11 @@ def _extract_embedding_vectors(response: object, *, expected: int) -> list[list[
         # must be an exact permutation of range(expected). Requiring the full count first also
         # rules out a mixed response (some items indexed, some not) whose order is ambiguous.
         # sorted(present) == range(expected) then holds only for a true permutation, so a
-        # duplicate, missing, or out-of-range index is rejected here.
-        if len(present) != expected or sorted(present) != list(range(expected)):
+        # duplicate, missing, or out-of-range index is rejected here. Every index must also be a
+        # plain int (not a bool, not a string a broken gateway might send): otherwise sorted()
+        # could raise a TypeError comparing mixed types instead of cleanly rejecting the response.
+        all_int = all(isinstance(index, int) and not isinstance(index, bool) for index in present)
+        if not all_int or len(present) != expected or sorted(present) != list(range(expected)):
             raise LLMError("embedding response indices did not map one-to-one to the inputs")
         by_index = {index: item for index, item in zip(indices, data, strict=True) if index is not None}
         items = [by_index[position] for position in range(expected)]

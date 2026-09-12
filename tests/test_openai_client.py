@@ -545,6 +545,21 @@ def test_embed_raises_on_an_out_of_range_index(monkeypatch):
         _client(monkeypatch, embedding=response).embed(["a", "b"])
 
 
+def test_embed_per_call_model_overrides_the_default(monkeypatch):
+    seen: dict[str, object] = {}
+    install_openai(monkeypatch, capture=seen, vectors=([0.1],))
+    make_client("openai", api_key="k").embed(["a"], model="text-embedding-3-large")
+    assert seen["model"] == "text-embedding-3-large"
+
+
+def test_embed_rejects_mixed_incomparable_index_types(monkeypatch):
+    # A broken gateway returning mixed int/str indices must be a clean LLMError, not a raw
+    # TypeError from sorted() comparing incomparable types.
+    response = fake_embeddings([([1.0], 0), ([2.0], "1")])
+    with pytest.raises(LLMError):
+        _client(monkeypatch, embedding=response).embed(["a", "b"])
+
+
 def test_embed_raises_on_a_mixed_indexed_and_unindexed_response(monkeypatch):
     # One item carries an index and the other does not: the order is ambiguous, so it is
     # rejected rather than guessed.

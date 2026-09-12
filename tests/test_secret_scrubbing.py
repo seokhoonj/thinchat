@@ -42,6 +42,99 @@ def _assert_secret_absent(secret, error):
         stack.extend((node.__cause__, node.__context__))
 
 
+def _key_bearing_openai_error(message="401 Unauthorized"):
+    """A fake OpenAI SDK error carrying the key in its request headers -- the real leak vector
+    scrub_exception cannot rewrite, so only severance (dropping the chain) protects it."""
+    err = FakeOpenAIError(message)
+    err.request = types.SimpleNamespace(headers={"Authorization": f"Bearer {_TEST_API_KEY}"})  # type: ignore[attr-defined]
+    return err
+
+
+def _key_bearing_anthropic_error(message="401 Unauthorized"):
+    err = FakeAnthropicError(message)
+    err.request = types.SimpleNamespace(headers={"x-api-key": _TEST_API_KEY})  # type: ignore[attr-defined]
+    return err
+
+
+# Every verb builds its LLMError inside an `except` and must `raise` it OUTSIDE, so the
+# key-bearing SDK error is never chained. Only openai sync complete had this asserted before; a
+# `raise ... from err` regression on any other verb would re-expose the key via request.headers
+# while the message-scrub tests stay green. Pin all ten verbs on the chain being severed.
+
+async def test_openai_acomplete_severs_the_key_bearing_headers(monkeypatch):
+    install_openai(monkeypatch, error=_key_bearing_openai_error())
+    with pytest.raises(LLMError) as exc:
+        await make_client("openai", api_key=_TEST_API_KEY).acomplete("hi")
+    assert exc.value.__cause__ is None and exc.value.__context__ is None
+    _assert_secret_absent(_TEST_API_KEY, exc.value)
+
+
+def test_openai_embed_severs_the_key_bearing_headers(monkeypatch):
+    install_openai(monkeypatch, error=_key_bearing_openai_error())
+    with pytest.raises(LLMError) as exc:
+        make_client("openai", api_key=_TEST_API_KEY).embed(["a"])
+    assert exc.value.__cause__ is None and exc.value.__context__ is None
+    _assert_secret_absent(_TEST_API_KEY, exc.value)
+
+
+async def test_openai_aembed_severs_the_key_bearing_headers(monkeypatch):
+    install_openai(monkeypatch, error=_key_bearing_openai_error())
+    with pytest.raises(LLMError) as exc:
+        await make_client("openai", api_key=_TEST_API_KEY).aembed(["a"])
+    assert exc.value.__cause__ is None and exc.value.__context__ is None
+    _assert_secret_absent(_TEST_API_KEY, exc.value)
+
+
+def test_openai_stream_severs_the_key_bearing_headers(monkeypatch):
+    install_openai(monkeypatch, stream_error_after=0, stream_exc=_key_bearing_openai_error())
+    with pytest.raises(LLMError) as exc:
+        list(make_client("openai", api_key=_TEST_API_KEY).stream("hi"))
+    assert exc.value.__cause__ is None and exc.value.__context__ is None
+    _assert_secret_absent(_TEST_API_KEY, exc.value)
+
+
+async def test_openai_astream_severs_the_key_bearing_headers(monkeypatch):
+    install_openai(monkeypatch, stream_error_after=0, stream_exc=_key_bearing_openai_error())
+    client = make_client("openai", api_key=_TEST_API_KEY)
+    with pytest.raises(LLMError) as exc:
+        [chunk async for chunk in client.astream("hi")]
+    assert exc.value.__cause__ is None and exc.value.__context__ is None
+    _assert_secret_absent(_TEST_API_KEY, exc.value)
+
+
+def test_claude_complete_severs_the_key_bearing_headers(monkeypatch):
+    install_anthropic(monkeypatch, error=_key_bearing_anthropic_error())
+    with pytest.raises(LLMError) as exc:
+        make_client("claude", api_key=_TEST_API_KEY).complete("hi")
+    assert exc.value.__cause__ is None and exc.value.__context__ is None
+    _assert_secret_absent(_TEST_API_KEY, exc.value)
+
+
+async def test_claude_acomplete_severs_the_key_bearing_headers(monkeypatch):
+    install_anthropic(monkeypatch, error=_key_bearing_anthropic_error())
+    with pytest.raises(LLMError) as exc:
+        await make_client("claude", api_key=_TEST_API_KEY).acomplete("hi")
+    assert exc.value.__cause__ is None and exc.value.__context__ is None
+    _assert_secret_absent(_TEST_API_KEY, exc.value)
+
+
+def test_claude_stream_severs_the_key_bearing_headers(monkeypatch):
+    install_anthropic(monkeypatch, stream_error_after=0, stream_exc=_key_bearing_anthropic_error())
+    with pytest.raises(LLMError) as exc:
+        list(make_client("claude", api_key=_TEST_API_KEY).stream("hi"))
+    assert exc.value.__cause__ is None and exc.value.__context__ is None
+    _assert_secret_absent(_TEST_API_KEY, exc.value)
+
+
+async def test_claude_astream_severs_the_key_bearing_headers(monkeypatch):
+    install_anthropic(monkeypatch, stream_error_after=0, stream_exc=_key_bearing_anthropic_error())
+    client = make_client("claude", api_key=_TEST_API_KEY)
+    with pytest.raises(LLMError) as exc:
+        [chunk async for chunk in client.astream("hi")]
+    assert exc.value.__cause__ is None and exc.value.__context__ is None
+    _assert_secret_absent(_TEST_API_KEY, exc.value)
+
+
 def test_an_openai_error_message_scrubs_the_key(capsys, monkeypatch):
     install_openai(monkeypatch, error=FakeOpenAIError(f"401 auth failed for key {_TEST_API_KEY}"))
     client = make_client("openai", api_key=_TEST_API_KEY)
