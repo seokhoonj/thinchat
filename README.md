@@ -232,7 +232,7 @@ flowchart LR
   M(["<b>make_client(provider)</b>"]):::entry
   C["<b>Client</b><br/>openai-compatible · or claude"]:::client
   V["<b>complete · stream · parse · embed</b><br/>+ async twins (a-prefixed)"]:::verb
-  S{{"<b>vendor SDK</b>"}}:::sdk
+  S("<b>vendor SDK</b>"):::sdk
   O(["<b>Completion(str)</b> · dict · list[float] · stream"]):::ok
   E(["<b>LLMError</b><br/>AuthError · RateLimitError (429)"]):::err
   M --> C --> V --> S
