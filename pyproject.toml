@@ -38,7 +38,7 @@ dependencies    = [
     "openai>=1.30",
     "anthropic>=0.40",
     "httpx>=0.23",
-    "credbox>=0.1.0,<0.2",
+    "credbox>=0.2.0,<0.3",
 ]
 
 [project.urls]
