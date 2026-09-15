@@ -33,10 +33,13 @@ __all__ = ["ENV_BY_PROVIDER", "get_api_key", "set_api_key", "unset_api_key", "st
 # The credbox app whose store thinchat's keys live in: ~/.config/thinchat/credentials.json.
 _STORE_APP = "thinchat"
 
-# One credbox facade bound to that app, reused across calls. It uses the default (file) backend,
+# One credbox facade bound to that app, reused across calls, via `for_app` (not the bare
+# `Credentials(...)`) so thinchat is embeddable: a host that sets THINCHAT_STORE_APP /
+# THINCHAT_NAMESPACE before importing thinchat redirects the binding into the host's own store
+# under a "thinchat" section, no code change here. Standalone it is the default (file) backend,
 # so keys persist to credentials.json (mode 0600); the path is resolved per call, so a test that
 # repoints XDG_CONFIG_HOME still isolates the store.
-_credentials = Credentials(_STORE_APP)
+_credentials = Credentials.for_app(_STORE_APP)
 
 # The environment variable each provider's key is read from, and the name it is stored under.
 # ollama is absent on purpose: a local server needs no key, so its client passes a dummy the

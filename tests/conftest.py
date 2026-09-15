@@ -7,7 +7,15 @@ the store at a fresh temp directory and clears the provider environment variable
 test starts from an empty, private credential state.
 """
 
+import os
+
 import pytest
+
+# thinchat.keys binds its store via Credentials.for_app, which reads THINCHAT_STORE_APP /
+# THINCHAT_NAMESPACE at import time. Clear a developer's shell values here (before any test module
+# imports thinchat) so the suite exercises the standalone binding, not an inherited redirect.
+os.environ.pop("THINCHAT_STORE_APP", None)
+os.environ.pop("THINCHAT_NAMESPACE", None)
 
 # The API-key env vars, plus OLLAMA_HOST: ollama's endpoint is resolved from the environment, so
 # a developer's exported OLLAMA_HOST would otherwise bleed into the default-endpoint tests.
