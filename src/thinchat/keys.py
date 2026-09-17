@@ -16,6 +16,7 @@ rather than keeping its own copy.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import get_args
 
 from credbox import BlankSecretError, CredBoxError, Credentials, Secret
@@ -33,13 +34,30 @@ __all__ = ["ENV_BY_PROVIDER", "get_api_key", "set_api_key", "unset_api_key", "st
 # The credbox app whose store thinchat's keys live in: ~/.config/thinchat/credentials.json.
 _STORE_APP = "thinchat"
 
+
 # One credbox facade bound to that app, reused across calls, via `for_app` (not the bare
 # `Credentials(...)`) so thinchat is embeddable: a host that sets THINCHAT_STORE_APP /
-# THINCHAT_NAMESPACE before importing thinchat redirects the binding into the host's own store
+# THINCHAT_NAMESPACE before the first key call redirects the binding into the host's own store
 # under a "thinchat" section, no code change here. Standalone it is the default (file) backend,
 # so keys persist to credentials.json (mode 0600); the path is resolved per call, so a test that
 # repoints XDG_CONFIG_HOME still isolates the store.
-_credentials = Credentials.for_app(_STORE_APP)
+@lru_cache(maxsize=1)
+def _get_credentials() -> Credentials:
+    """thinchat's credential store, built on first use and cached.
+
+    Built lazily rather than at import so nothing about the store -- a malformed
+    `THINCHAT_STORE_APP` / `THINCHAT_NAMESPACE` override in the host-embedding scenario `for_app`
+    exists to serve, or any other binding fault -- can crash `import thinchat`. Any credbox error
+    building the binding is translated here to a `CredentialStoreError`, so a foreign type never
+    escapes; a fault credbox defers to the first store access surfaces the same way at the key call
+    site, inside the documented catch surface. credbox resolves the store path per call, so the
+    cached binding still isolates a test that repoints ``XDG_CONFIG_HOME``.
+    """
+    try:
+        return Credentials.for_app(_STORE_APP)
+    except CredBoxError as err:
+        raise CredentialStoreError("the thinchat credential store binding is invalid") from err
+
 
 # The environment variable each provider's key is read from, and the name it is stored under.
 # ollama is absent on purpose: a local server needs no key, so its client passes a dummy the
@@ -85,7 +103,8 @@ def get_api_key(provider: str, *, override: str | None = None) -> Secret | None:
         UnknownProviderError: ``provider`` is not one thinchat supports (a typo resolves to
             an error, not a misleading "no key").
         CredentialStoreError: the store could not be read -- present but unreadable or
-            malformed, or the storage backend failed (propagated from credbox).
+            malformed, the storage backend failed (propagated from credbox), or the store
+            binding (THINCHAT_STORE_APP / THINCHAT_NAMESPACE) is invalid.
     """
     if provider not in _ALL_PROVIDERS:
         raise UnknownProviderError(
@@ -97,7 +116,7 @@ def get_api_key(provider: str, *, override: str | None = None) -> Secret | None:
         cleaned = override.strip() if override is not None else None
         return Secret(cleaned) if cleaned else None
     try:
-        return _credentials.secret(name, override=override)   # credbox returns a Secret | None
+        return _get_credentials().secret(name, override=override)   # credbox returns a Secret | None
     except CredBoxError as err:
         raise CredentialStoreError(f"could not read the stored key for {provider}") from err
 
@@ -113,11 +132,12 @@ def set_api_key(provider: str, *, value: str) -> None:
             but resolve as absent, an inconsistency the store rejects (credbox raises
             ``BlankSecretError``); translated here to a thinchat error (a ``ValueError`` too,
             so ``except ValueError`` still catches it).
-        CredentialStoreError: the store could not be written.
+        CredentialStoreError: the store could not be written, or the store binding
+            (THINCHAT_STORE_APP / THINCHAT_NAMESPACE) is invalid.
     """
     name = _stored_name(provider)
     try:
-        _credentials.set(name, value=value)
+        _get_credentials().set(name, value=value)
     except BlankSecretError as err:   # subclass of CredBoxError -- MUST precede the broad handler
         raise BlankKeyError(f"the API key for {provider} is empty") from err
     except CredBoxError as err:
@@ -131,11 +151,12 @@ def unset_api_key(provider: str) -> None:
     Raises:
         UnknownProviderError: ``provider`` is not one thinchat supports.
         UnsupportedError: ``provider`` needs no API key (ollama).
-        CredentialStoreError: the store could not be written.
+        CredentialStoreError: the store could not be written, or the store binding
+            (THINCHAT_STORE_APP / THINCHAT_NAMESPACE) is invalid.
     """
     name = _stored_name(provider)
     try:
-        _credentials.unset(name)
+        _get_credentials().unset(name)
     except CredBoxError as err:
         raise CredentialStoreError(f"could not remove the stored key for {provider}") from err
 
@@ -148,10 +169,11 @@ def stored_providers() -> list[str]:
 
     Raises:
         CredentialStoreError: the store could not be read -- present but unreadable or
-            malformed, or the storage backend failed (propagated from credbox).
+            malformed, the storage backend failed (propagated from credbox), or the store
+            binding (THINCHAT_STORE_APP / THINCHAT_NAMESPACE) is invalid.
     """
     try:
-        stored = set(_credentials.names())
+        stored = set(_get_credentials().names())
     except CredBoxError as err:
         raise CredentialStoreError("could not read the credential store") from err
     return [provider for provider, name in ENV_BY_PROVIDER.items() if name in stored]
