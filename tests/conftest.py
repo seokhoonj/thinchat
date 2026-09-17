@@ -12,8 +12,8 @@ import os
 import pytest
 
 # thinchat.keys binds its store via Credentials.for_app, which reads THINCHAT_STORE_APP /
-# THINCHAT_NAMESPACE at import time. Clear a developer's shell values here (before any test module
-# imports thinchat) so the suite exercises the standalone binding, not an inherited redirect.
+# THINCHAT_NAMESPACE the first time a key call builds the store. Clear a developer's shell values
+# here (before any test touches it) so the suite exercises the standalone binding, not a redirect.
 os.environ.pop("THINCHAT_STORE_APP", None)
 os.environ.pop("THINCHAT_NAMESPACE", None)
 
@@ -27,3 +27,11 @@ def isolate_api_key_sources(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     for env_var in _PROVIDER_ENV_VARS:
         monkeypatch.delenv(env_var, raising=False)
+    # `_get_credentials` caches one binding for the process (`@lru_cache`); a test that redirects
+    # it with THINCHAT_STORE_APP / THINCHAT_NAMESPACE would otherwise leave that redirect cached
+    # past the monkeypatched env that built it. Clear it around each test so the redirect is local.
+    from thinchat.keys import _get_credentials
+
+    _get_credentials.cache_clear()
+    yield
+    _get_credentials.cache_clear()

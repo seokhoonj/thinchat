@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 
 [project]
 name            = "thinchat"
-version         = "0.3.0"
+version         = "0.3.1"
 description     = "A thin, unified client for four LLM providers: claude, openai, gemini, ollama."
 readme          = "README.md"
 license         = "MIT"
@@ -38,7 +38,7 @@ dependencies    = [
     "openai>=1.30",
     "anthropic>=0.40",
     "httpx>=0.23",
-    "credbox>=0.3.0,<0.4",
+    "credbox>=0.4.0,<0.5",
 ]
 
 [project.urls]

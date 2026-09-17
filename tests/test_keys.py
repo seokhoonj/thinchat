@@ -2,6 +2,8 @@
 
 import json
 import os
+import subprocess
+import sys
 
 import pytest
 from credbox import CredBoxError, Secret, config_dir
@@ -258,13 +260,63 @@ def test_a_malformed_store_error_never_echoes_the_file_contents():
 
 def test_a_store_write_failure_never_adds_the_key_to_the_error(monkeypatch):
     # thinchat wraps a write failure with the provider name only, never the value it was
-    # handed; the credbox cause is secret-safe by contract, so the chain is not re-scrubbed.
+    # handed. Assert against the whole exception chain (__cause__/__context__), not just the
+    # top message, so a future wrapper that echoed the value into the cause would be caught.
     secret = "sk-VALUE-IN-HAND-1111"
 
-    def fail_write(*args, **kwargs):
-        raise CredBoxError("backend write failed")
+    class FailStore:
+        def set(self, *args, **kwargs):
+            raise CredBoxError("backend write failed")
 
-    monkeypatch.setattr("thinchat.keys._credentials.set", fail_write)
+    monkeypatch.setattr("thinchat.keys._get_credentials", lambda: FailStore())
     with pytest.raises(CredentialStoreError) as exc_info:
         set_api_key("claude", value=secret)
-    assert secret not in str(exc_info.value)
+
+    seen: set[int] = set()
+    pending: list[BaseException | None] = [exc_info.value]
+    while pending:
+        error = pending.pop()
+        if error is None or id(error) in seen:
+            continue
+        seen.add(id(error))
+        assert secret not in str(error)
+        pending += [error.__cause__, error.__context__]
+
+
+# Both sibling override keys feed the same `for_app` validation, so a malformed value in either
+# must surface identically -- as thinchat's own error, not credbox's.
+@pytest.mark.parametrize("binding_var", ["THINCHAT_NAMESPACE", "THINCHAT_STORE_APP"])
+def test_a_malformed_store_binding_surfaces_as_a_credential_store_error(monkeypatch, binding_var):
+    # A bad binding makes credbox's `for_app` reject it. It must reach the caller as thinchat's
+    # own CredentialStoreError (inside the documented catch surface), not as credbox's
+    # InvalidAppNameError -- a foreign type callers were never told to catch.
+    from thinchat.keys import _get_credentials
+
+    monkeypatch.setenv(binding_var, "../evil")
+    _get_credentials.cache_clear()
+    with pytest.raises(CredentialStoreError):
+        get_api_key("claude")
+
+
+def test_importing_thinchat_does_not_crash_on_a_malformed_binding():
+    # The store is built lazily, not at import, so a malformed THINCHAT_NAMESPACE must not abort
+    # `import thinchat` -- the very host-embedding scenario `for_app` exists to serve. Prove both
+    # halves in one process: the import succeeds, AND the failure is deferred to the first key
+    # call, where it surfaces as thinchat's own CredentialStoreError.
+    program = (
+        "import thinchat\n"
+        "from thinchat.errors import CredentialStoreError\n"
+        "try:\n"
+        "    thinchat.get_api_key('claude')\n"
+        "except CredentialStoreError:\n"
+        "    raise SystemExit(0)\n"
+        "raise SystemExit('binding error was not deferred to the first key call')\n"
+    )
+    env = {**os.environ, "THINCHAT_NAMESPACE": "../evil"}
+    result = subprocess.run(
+        [sys.executable, "-c", program],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
